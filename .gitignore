@@ -1,0 +1,15 @@
+log/
+logger/log
+*.exe
+*.bak
+*.env
+*.txt
+*.dat
+*.zip
+*.toml
+dist*/
+watchdog/
+terminate/
+resource.syso
+versioninfo.json
+config/config

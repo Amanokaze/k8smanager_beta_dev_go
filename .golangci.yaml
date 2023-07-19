@@ -1,0 +1,21 @@
+linters:
+  enable:
+    - dupl
+    - asciicheck
+    - depguard
+    - dogsled
+    - errorlint
+    - nilerr
+    - nilnil
+    - whitespace    
+    - errname
+    - goconst
+    - nlreturn
+
+linters-settings:
+  nlreturn:
+    block-size: 2   
+  dupl:
+    threshold: 1000
+  staticcheck:
+    checks: ["all", "-SA4023"]

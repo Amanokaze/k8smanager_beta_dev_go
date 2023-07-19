@@ -1,0 +1,13 @@
+- id: golangci-lint
+  name: golangci-lint
+  description: Fast linters runner for Go.
+  entry: golangci-lint run --fix
+  types: [go]
+  language: golang
+  pass_filenames: false
+- id: go-unit-tests
+  name: go-unit-tests
+  description: go test
+  entry: go test ./...
+  types: [go]
+  language: golang
