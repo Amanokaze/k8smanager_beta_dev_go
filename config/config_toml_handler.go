@@ -50,7 +50,7 @@ type tomlConfigConnection struct {
 	Sslmode  string `toml:"sslmode"`
 }
 
-type tomlConfigTableShortTerm struct {
+type tomlConfigTableTerm struct {
 	Duration       int    `toml:"duration"`
 	TablespaceName string `toml:"tablespace_name"`
 	Tablespace     bool   `toml:"tablespace"`
@@ -64,10 +64,11 @@ type tomlConfigTableResource struct {
 }
 
 type tomlConfigTable struct {
-	Autovacuum bool                     `toml:"autovacuum"`
-	Initvacuum bool                     `toml:"initvacuum"`
-	ShortTerm  tomlConfigTableShortTerm `toml:"short_term"`
-	Resource   tomlConfigTableResource  `toml:"resource"`
+	Autovacuum bool                    `toml:"autovacuum"`
+	Initvacuum bool                    `toml:"initvacuum"`
+	ShortTerm  tomlConfigTableTerm     `toml:"short_term"`
+	LongTerm   tomlConfigTableTerm     `toml:"long_term"`
+	Resource   tomlConfigTableResource `toml:"resource"`
 }
 
 type tomlConfigKubernetesCluster struct {
@@ -83,6 +84,7 @@ type tomlConfigInterval struct {
 	Eventlog        int `toml:"eventlog"`
 	Rate            int `toml:"rate"`
 	Realtime        int `toml:"realtime"`
+	Avg             int `toml:"avg"`
 	Resource        int `toml:"resource"`
 	ResourceChange  int `toml:"resource_change"`
 	RetryConnection int `toml:"retry_connection"`
@@ -289,6 +291,10 @@ func (t *tomlConfigHandler) GetStrConf(key string, defVal string) string {
 				return t.tomlConfig.Table.ShortTerm.TablespaceName
 			case "short_term.tablespace_path":
 				return t.tomlConfig.Table.ShortTerm.TablespacePath
+			case "long_term.tablespace_name":
+				return t.tomlConfig.Table.LongTerm.TablespaceName
+			case "long_term.tablespace_path":
+				return t.tomlConfig.Table.LongTerm.TablespacePath
 			case "resource.tablespace_name":
 				return t.tomlConfig.Table.Resource.TablespaceName
 			case "resource.tablespace_path":
@@ -342,6 +348,8 @@ func (t *tomlConfigHandler) GetUint16Conf(key string, defVal uint16) uint16 {
 			switch fmt.Sprintf("%s.%s", keys[1], keys[2]) {
 			case "short_term.duration":
 				return uint16(t.tomlConfig.Table.ShortTerm.Duration)
+			case "long_term.duration":
+				return uint16(t.tomlConfig.Table.LongTerm.Duration)
 			}
 		case "kubernetes":
 			switch keys[1] {
@@ -361,6 +369,8 @@ func (t *tomlConfigHandler) GetUint16Conf(key string, defVal uint16) uint16 {
 				return uint16(t.tomlConfig.Interval.Rate)
 			case "realtime":
 				return uint16(t.tomlConfig.Interval.Realtime)
+			case "avg":
+				return uint16(t.tomlConfig.Interval.Avg)
 			case "resource":
 				return uint16(t.tomlConfig.Interval.Resource)
 			case "resource_change":
@@ -403,6 +413,8 @@ func (t *tomlConfigHandler) GetBoolConf(key string, defVal bool) bool {
 				switch fmt.Sprintf("%s.%s", keys[1], keys[2]) {
 				case "short_term.tablespace":
 					return t.tomlConfig.Table.ShortTerm.Tablespace
+				case "long_term.tablespace":
+					return t.tomlConfig.Table.LongTerm.Tablespace
 				case "resource.tablespace":
 					return t.tomlConfig.Table.Resource.Tablespace
 				}
@@ -482,6 +494,10 @@ func (t *tomlConfigHandler) SetDefaultValue() {
 		t.tomlConfig.Table.ShortTerm.Duration = 10
 	}
 
+	if t.tomlConfig.Table.LongTerm.Duration == 0 {
+		t.tomlConfig.Table.LongTerm.Duration = 600
+	}
+
 	// 차후 사용 가능성을 고려하여 주석처리
 	// if t.tomlConfig.Table.ShortTerm.TablespaceName == "" {
 	// 	t.tomlConfig.Table.ShortTerm.TablespaceName = "ontuneshortterm"
@@ -523,6 +539,10 @@ func (t *tomlConfigHandler) SetDefaultValue() {
 
 	if t.tomlConfig.Interval.Realtime == 0 {
 		t.tomlConfig.Interval.Realtime = 10
+	}
+
+	if t.tomlConfig.Interval.Avg == 0 {
+		t.tomlConfig.Interval.Avg = 600
 	}
 
 	if t.tomlConfig.Interval.Resource == 0 {

@@ -11,15 +11,15 @@ func EventlogReceive() {
 	for {
 		eventlog_msg := <-common.ChannelEventlogData
 		if val, ok := eventlog_msg["event"]; ok {
-			writeLog("this data is event info!!")
+			common.LogManager.Debug("this data is event info!!")
 			setEventinfo(val)
-			writeLog("event info End")
+			common.LogManager.Debug("event info End")
 			// } else if val, ok := eventlog_msg["log"]; ok {
-			// 	writeLog("this data is log info!!")
+			// 	common.LogManager.Debug("this data is log info!!")
 			// 	setLoginfo(val)
-			// 	writeLog("log info End")
+			// 	common.LogManager.Debug("log info End")
 		} else {
-			writeLog("no data??")
+			common.LogManager.Debug("no data??")
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
@@ -32,14 +32,16 @@ func setEventinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
 		ArrResource.ArrEventUid = append(ArrResource.ArrEventUid, resource_data.UID)
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
-		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrEventname = append(ArrResource.ArrEventname, resource_data.Name)
 		ArrResource.ArrFirsttime = append(ArrResource.ArrFirsttime, getStarttime(resource_data.Firsttime.Unix(), biastime))
 		ArrResource.ArrLasttime = append(ArrResource.ArrLasttime, getStarttime(resource_data.Lasttime.Unix(), biastime))
@@ -91,7 +93,7 @@ func setEventinfo(info_msg []byte) {
 // 	var ArrResource Loginfo
 
 // 	err := json.Unmarshal([]byte(info_msg), &map_data)
-// 	errorCheck(err)
+// 	if !errorCheck(err) { return }
 
 // 	for _, resource_data := range map_data {
 // 		if resource_data.Logtype == "pod" {
@@ -107,7 +109,7 @@ func setEventinfo(info_msg []byte) {
 // 			}
 
 // 			ArrResource.ArrLogType = append(ArrResource.ArrLogType, resource_data.Logtype)
-// 			ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+// 			ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 // 			ArrResource.ArrPodUid = append(ArrResource.ArrPodUid, poduid)
 // 			ArrResource.ArrStarttime = append(ArrResource.ArrStarttime, getStarttime(resource_data.Starttime.Unix(), biastime))
 // 			ArrResource.ArrMessage = append(ArrResource.ArrMessage, resource_data.Message)

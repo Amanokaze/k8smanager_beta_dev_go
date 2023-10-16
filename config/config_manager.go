@@ -73,6 +73,10 @@ func (mConf *ManagerConfig) LoadServerConfigurationToml(confPath string) error {
 	mConf.tableConf.shorttermtablespace = hConf.GetBoolConf("table.short_term.tablespace", false)
 	mConf.tableConf.shorttermtablespacename = hConf.GetStrConf("table.short_term.tablespace_name", "")
 	mConf.tableConf.shorttermtablespacepath = hConf.GetStrConf("table.short_term.tablespace_path", "")
+	mConf.tableConf.longtermduration = hConf.GetUint16Conf("table.long_term.duration", 600)
+	mConf.tableConf.longtermtablespace = hConf.GetBoolConf("table.long_term.tablespace", false)
+	mConf.tableConf.longtermtablespacename = hConf.GetStrConf("table.long_term.tablespace_name", "")
+	mConf.tableConf.longtermtablespacepath = hConf.GetStrConf("table.long_term.tablespace_path", "")
 
 	mConf.clustercount = hConf.GetUint16Conf("kubernetes.cluster_count", 1)
 	mConf.kubeConf = make([]KubeConfig, mConf.clustercount)
@@ -81,6 +85,7 @@ func (mConf *ManagerConfig) LoadServerConfigurationToml(confPath string) error {
 	}
 
 	mConf.realtimeinterval = hConf.GetUint16Conf("interval.realtime", 10)
+	mConf.avginterval = hConf.GetUint16Conf("interval.avg", 600)
 	mConf.resourceinterval = hConf.GetUint16Conf("interval.resource", 600)
 	mConf.resourcechangeinterval = hConf.GetUint16Conf("interval.resource_change", 60)
 	mConf.eventloginterval = hConf.GetUint16Conf("interval.eventlog", 10)
@@ -226,12 +231,12 @@ func (mgrConf *ManagerConfig) GetLongtermduration() int {
 	return int(mgrConf.tableConf.longtermduration)
 }
 
-// GetTableLongtermSpacePath is a function that returns the path of the long-term tablespace.
+// GetManagerName is a function that returns the path of the long-term tablespace.
 func (mgrConf *ManagerConfig) GetManagerName() string {
 	return mgrConf.managername
 }
 
-// GetTableLongtermSpacePath is a function that returns the path of the long-term tablespace.
+// GetCluster is a function that returns the path of the long-term tablespace.
 func (mgrConf *ManagerConfig) GetCluster() uint16 {
 	return mgrConf.clustercount
 }

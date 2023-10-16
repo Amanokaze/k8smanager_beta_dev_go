@@ -275,7 +275,7 @@ func (c *ClientInfo) GetResourceDataInterval() {
 			last_updatetime = time.Now().Unix()
 			c.GetResourceData()
 		}
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * time.Duration(10))
 	}
 }
 
@@ -288,7 +288,7 @@ func (c *ClientInfo) GetEventlogDataInterval() {
 			last_updatetime = time.Now().Unix()
 			c.GetEventlogData(false)
 		}
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * time.Duration(10))
 	}
 }
 
@@ -297,11 +297,12 @@ func (c *ClientInfo) GetMetricDataInterval() {
 	for {
 		c.SleepGetData()
 
-		if last_updatetime+int64(common.RealtimeInterval) <= time.Now().Unix() {
+		if last_updatetime+int64(common.ReceiveInterval) <= time.Now().Unix() {
 			last_updatetime = time.Now().Unix()
+			common.LogManager.Debug(fmt.Sprintf("Get Metric Data Client Interval: %v", c.Host))
 			c.GetMetricData()
 		}
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * time.Duration(10))
 	}
 }
 
@@ -344,6 +345,8 @@ func (c *ClientInfo) GetMetricData() {
 	if err != nil {
 		return
 	}
+
+	common.LogManager.Debug(fmt.Sprintf("Get Metric Data Client: %v", c.Host))
 
 	var k8sApiMetricSource = KubernetesAPIMetricSource{}
 	k8sApiMetricSource.GetData(c)

@@ -109,7 +109,7 @@ func TestResourceRowEnabled(t *testing.T) {
 }
 
 func row_enabled_check_result(pool *pgxpool.Pool, colName string, tablename string) (string, error) {
-	rows, err := select_row_enabled(pool, colName, tablename)
+	rows, err := selectRowEnabled(pool, colName, tablename)
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +134,7 @@ func rows_scan(rows pgx.Rows) (string, error) {
 	return "", nil
 }
 
-func select_row_enabled(pool *pgxpool.Pool, colName string, tablename string) (pgx.Rows, error) {
+func selectRowEnabled(pool *pgxpool.Pool, colName string, tablename string) (pgx.Rows, error) {
 	conn, err := pool.Acquire(context.Background())
 	if err != nil {
 		return nil, err

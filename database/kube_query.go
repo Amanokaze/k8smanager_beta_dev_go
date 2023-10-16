@@ -8,9 +8,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
 )
 
 const SECONDS = 60
+
+var previous_bias int64 = 0
 
 // GetOntuneTime is get ontune time
 // return: ontunetime, bias
@@ -18,14 +21,19 @@ func GetOntuneTime() (int64, int64) {
 	var ontunetime int64
 	var bias int64
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0, previous_bias * SECONDS
 	}
 
 	defer conn.Release()
 
 	err = conn.QueryRow(context.Background(), SELECT_ONTUNE_TIME).Scan(&ontunetime, &bias)
-	errorCheckQueryRow(err)
+	if !errorCheck(err) {
+		return 0, previous_bias * SECONDS
+	}
+
+	previous_bias = bias
 
 	return ontunetime, bias * SECONDS
 }
@@ -39,21 +47,28 @@ func GetOntuneTime() (int64, int64) {
 func QueryManagerinfo(managername string, description string, ip string) int {
 	var returnVal int
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return 0
+	}
+
 	err = conn.QueryRow(context.Background(), SELECT_MANAGER_INFO, managername).Scan(&returnVal)
-	rowcheck := RowCountCheck(err)
+	rowcheck := checkRowCount(err)
 	if !rowcheck {
 		insert_err := conn.QueryRow(context.Background(), INSERT_MANAGER_INFO_SQL, managername, description, ip, ontunetime, ontunetime).Scan(&returnVal)
-		errorCheckQueryRow(insert_err)
+		if !errorCheck(insert_err) {
+			return 0
+		}
 	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_MANAGER_INFO, ontunetime)
+	updateTableinfo(TB_KUBE_MANAGER_INFO, ontunetime)
 
 	return returnVal
 }
@@ -72,40 +87,60 @@ func QueryClusterinfo(managerid int, clustername string, ctx string, ip string) 
 	var flag bool
 
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return 0
+	}
 
 	rows, err := conn.Query(context.Background(), SELECT_CLUSTER_INFO, ip)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	if rows.Next() {
 		err := rows.Scan(&clusterid, &enabled, &status)
-		errorCheck(err)
+		if !errorCheck(err) {
+			return 0
+		}
 
 		rows.Close()
 
 		if enabled == 0 {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return 0
+			}
 
 			_, err = tx.Exec(context.Background(), UPDATE_CLUSTER_ENABLED, clusterid, ontunetime)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return 0
+			}
 		}
 	} else {
 		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return 0
+		}
 
 		err = tx.QueryRow(context.Background(), INSERT_CLUSTER_INFO_SQL, common.ManagerID, clustername, ctx, ip, ontunetime, ontunetime).Scan(&clusterid, &enabled)
-		errorCheckQueryRow(err)
+		if !errorCheck(err) {
+			return 0
+		}
 
 		err = tx.Commit(context.Background())
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Commit error")) {
+			return 0
+		}
 
 		flag = true
 	}
@@ -119,7 +154,7 @@ func QueryClusterinfo(managerid int, clustername string, ctx string, ip string) 
 	conn.Release()
 
 	if flag {
-		update_tableinfo(TB_KUBE_CLUSTER_INFO, ontunetime)
+		updateTableinfo(TB_KUBE_CLUSTER_INFO, ontunetime)
 	}
 
 	return clusterid
@@ -128,8 +163,9 @@ func QueryClusterinfo(managerid int, clustername string, ctx string, ip string) 
 // QueryUnusedClusterReset is to reset unused cluster and related data
 func QueryUnusedClusterReset() {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
@@ -146,14 +182,18 @@ func QueryUnusedClusterReset() {
 	common.LogManager.Debug("Select Unused Cluster Info Previous Execution")
 	common.LogManager.Debug(fmt.Sprintf(SELECT_UNUSED_CLUSTER_INFO, ip_array_str))
 	rows, err := conn.Query(context.Background(), fmt.Sprintf(SELECT_UNUSED_CLUSTER_INFO, ip_array_str))
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 	common.LogManager.Debug("Select Unused Cluster Info Execution is completed")
 
 	clusterid_arr := make([]int, 0)
 	for rows.Next() {
 		var clusterid int
 		err := rows.Scan(&clusterid)
-		errorCheck(err)
+		if !errorCheck(err) {
+			return
+		}
 
 		clusterid_arr = append(clusterid_arr, clusterid)
 	}
@@ -161,59 +201,96 @@ func QueryUnusedClusterReset() {
 	rows.Close()
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
 
 	for _, clusterid := range clusterid_arr {
 		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return
+		}
 
 		common.LogManager.Debug(fmt.Sprintf("Cluster %d Reset Previous Execution", clusterid))
 
 		_, update_err := tx.Exec(context.Background(), UPDATE_CLUSTER_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_NODE_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_POD_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_CONTAINER_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_NS_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_DEPLOY_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_STS_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_DS_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_RS_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_SVC_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_ING_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_PVC_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_PV_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_SC_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		_, update_err = tx.Exec(context.Background(), UPDATE_CLUSTER_INGHOST_RESET, clusterid, ontunetime)
-		errorCheck(update_err)
+		if !errorCheck(update_err) {
+			return
+		}
 
 		err = tx.Commit(context.Background())
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Commit error")) {
+			return
+		}
 	}
 }

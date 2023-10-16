@@ -3,12 +3,12 @@ package database
 import (
 	"context"
 	"fmt"
-	"onTuneKubeManager/common"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
 )
 
 func ProcessTableVersion(tablever int) {
@@ -22,1707 +22,430 @@ func ProcessTableVersion(tablever int) {
 	// }
 }
 
-func checkKubemanagerinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_MANAGER_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_MANAGER_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_MANAGER_INFO+` (
-				managerid     serial NOT NULL PRIMARY KEY,
-				managername   text NOT NULL,
-				description   text NULL,
-				ip    		  text NOT NULL,
-				createdtime   bigint NOT NULL,
-				updatetime    bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_MANAGER_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubeclusterinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_CLUSTER_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_CLUSTER_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_CLUSTER_INFO+` (
-				clusterid     serial NOT NULL PRIMARY KEY,
-				managerid     integer NOT NULL,
-				clustername   text NOT NULL,
-				context		  text NULL,
-				ip    		  text NOT NULL,
-				enabled		  integer NOT NULL DEFAULT 1,
-				status		  integer NOT NULL DEFAULT 1,
-				createdtime   bigint NOT NULL,
-				updatetime    bigint NOT NULL				
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_CLUSTER_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKuberesourceinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_RESOURCE_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_RESOURCE_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_RESOURCE_INFO+` (
-				resourceid    	serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				resourcename  	text NOT NULL,
-				apiclass   		text NOT NULL,
-				version    		text NOT NULL,
-				endpoint    	text NOT NULL,
-				enabled    		integer NOT NULL DEFAULT 1,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_RESOURCE_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubescinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_SC_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_SC_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_SC_INFO+` (
-				scid    		  	serial NOT NULL PRIMARY KEY,
-				clusterid     		integer NOT NULL,
-				scname        		text NOT NULL,
-				uid   		    	text NOT NULL,
-				starttime    		bigint NOT NULL,
-				labels				text NULL,
-				provisioner   		text NULL,
-				reclaimpolicy 		text NULL,
-				volumebindingmode 	text NULL,
-				allowvolumeexp 		integer NULL,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   		bigint NOT NULL,
-				updatetime   		bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_SC_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_SC_INFO, "clusterid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubensinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_NS_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_NS_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_NS_INFO+` (
-				nsid    		  	serial NOT NULL PRIMARY KEY,
-				nsuid        		text NOT NULL,
-				clusterid     		integer NOT NULL,
-				nsname        		text NOT NULL,
-				starttime			bigint NOT NULL,
-				labels				text NULL,
-				status   		    text NULL,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   		bigint NOT NULL,
-				updatetime   		bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_NS_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_NS_INFO, "clusterid, nsname")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubenodeinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_NODE_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_NODE_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_NODE_INFO+` (
-				nodeid    		  			serial NOT NULL PRIMARY KEY,
-				managerid     				integer NOT NULL,
-				clusterid     				integer NOT NULL,
-				nodeuid     				text NOT NULL,
-				nodename        			text NULL,
-				nodenameext        			text NULL,
-				nodetype        			text NULL,
-				enabled    					integer NOT NULL DEFAULT 1,
-				starttime    				bigint NOT NULL,
-				labels						text NULL,
-				kernelversion   			text NULL,
-				osimage 					text NULL,
-				osname 						text NULL,
-				containerruntimever 		text NULL,
-				kubeletver 					text NULL,
-				kubeproxyver 				text NULL,
-				cpuarch 					text NULL,
-				cpucount 					integer NULL,
-				ephemeralstorage   			bigint NOT NULL default 0,
-				memorysize   				bigint NOT NULL default 0,
-				pods   						bigint NOT NULL default 0,
-				ip 							text NULL,
-				status						integer NOT NULL default 0,
-				createdtime   				bigint NOT NULL,
-				updatetime   				bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_NODE_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_NODE_INFO, "clusterid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubepodinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_POD_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_POD_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_POD_INFO+` (
-				podid    		  		serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				uid     					text NOT NULL,
-				nodeuid     			text NOT NULL,
-				nsuid     				text NOT NULL,
-				annotationuid   	text NOT NULL,
-				podname        		text NULL,
-				starttime    			bigint NOT NULL,
-				labels				text NULL,
-				selector			text NULL,
-				restartpolicy   	text NULL,
-				serviceaccount 		text NULL,
-				status 						text NULL,
-				hostip 						text NULL,
-				podip 						text NULL,
-				restartcount 			bigint NOT NULL default 0,
-				restarttime 			bigint NOT NULL default 0,
-				podcondition 			text NULL,
-				staticpod   			text NULL,
-				refkind   				text NULL,
-				refuid   					text NULL,
-				pvcuid					text NULL,
-				enabled 					integer NULL DEFAULT 0,
-				createdtime   		bigint NOT NULL,
-				updatetime   			bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_POD_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_POD_INFO, "nodeuid, nsuid, uid, refkind, refuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubecontainerinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_CONTAINER_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_CONTAINER_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_CONTAINER_INFO+` (
-				containerid    		serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				poduid     			text NOT NULL,
-				containername     	text NOT NULL,
-				image   		    text NOT NULL,
-				ports   		    text NULL,
-				env   		    	text NULL,
-				limitcpu 			bigint null,
-				limitmemory			bigint null,
-				limitstorage		bigint null,
-				limitephemeral		bigint null,
-				reqcpu 				bigint null,
-				reqmemory			bigint null,
-				reqstorage			bigint null,
-				reqephemeral		bigint null,
-				volumemounts   		text NULL,
-				state               text NULL,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   		bigint NOT NULL,
-				updatetime   		bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_CONTAINER_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_CONTAINER_INFO, "poduid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubefsdeviceinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_FS_DEVICE_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_FS_DEVICE_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_FS_DEVICE_INFO+` (
-				deviceid      serial NOT NULL PRIMARY KEY,
-				devicename    text NOT NULL,
-				createdtime   bigint NOT NULL,
-				updatetime   	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_FS_DEVICE_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubenetinterfaceinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_NET_INTERFACE_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_NET_INTERFACE_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_NET_INTERFACE_INFO+` (
-				interfaceid      serial NOT NULL PRIMARY KEY,
-				interfacename    text NOT NULL,
-				createdtime   bigint NOT NULL,
-				updatetime   	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_NET_INTERFACE_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubemetricidinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_METRIC_ID_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_METRIC_ID_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_METRIC_ID_INFO+` (
-				metricid      serial NOT NULL PRIMARY KEY,
-				metricname    text NOT NULL,
-				image		  text NOT NULL,
-				createdtime   bigint NOT NULL,
-				updatetime   	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_METRIC_ID_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubeinginfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_ING_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_ING_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_ING_INFO+` (
-				ingid     		serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     		text NOT NULL,
-				ingname   		text NOT NULL,
-				uid   				text NOT NULL,
-				starttime   	bigint NOT NULL,
-				labels				text NULL,
-				classname   	text NULL,
-				enabled    		integer NOT NULL DEFAULT 0,
-				createdtime   bigint NOT NULL,
-				updatetime    bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_ING_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_ING_INFO, "nsuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubeinghostinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_INGHOST_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_INGHOST_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_INGHOST_INFO+` (
-				inghostid     serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				inguid     		text NOT NULL,
-				backendtype   text NOT NULL,
-				backendname   text NULL,
-				hostname   		text NOT NULL DEFAULT '*',
-				pathtype   		text NULL,
-				path   				text NULL,
-				serviceport   integer NULL,
-				rscapigroup   text NULL,
-				rsckind   		text NULL,
-				enabled    		integer NOT NULL DEFAULT 0,
-				createdtime   bigint NOT NULL,
-				updatetime    bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		//Create View
-		stmt_str := `create or replace view ` + TB_KUBE_ING_INFO_V + ` as
-		select *,
-		coalesce((select sum(svcv.pods) 
-		   from ` + TB_KUBE_INGHOST_INFO + ` ih,
-		   ` + TB_KUBE_SVC_INFO_V + ` svcv
-		  where ih.inguid=ing.uid 
-			and ih.backendtype='service'
-			and svcv.svcname = ih.backendname),0) pods,
-		coalesce((select sum(svcv.available_pods) 
-		   from ` + TB_KUBE_INGHOST_INFO + ` ih,
-		   ` + TB_KUBE_SVC_INFO_V + ` svcv
-		  where ih.inguid=ing.uid 
-			and ih.backendtype='service'
-			and svcv.svcname = ih.backendname),0) available_pods
-		from ` + TB_KUBE_ING_INFO + ` ing`
-		_, err = tx.Exec(context.Background(), stmt_str)
-		errorCheck(err)
-
-		// Create View
-		stmt_str = `create or replace view ` + TB_KUBE_INGPOD_INFO_V + ` as
-		SELECT ing.ingid,ing.clusterid,ing.nsuid,ing.ingname,ing.uid inguid,ing.enabled,
-				ih.backendtype, ih.backendname, ih.hostname, ih.pathtype, ih.path, ih.serviceport,
-				svcpod.svcid, svcpod.svcname, svcpod.svcuid, svcpod.selector, svcpod.podid, svcpod.poduid, svcpod.podname
-		FROM ` + TB_KUBE_ING_INFO + ` ing, ` + TB_KUBE_INGHOST_INFO + ` ih, ` + TB_KUBE_SVCPOD_INFO_V + ` svcpod
-		where ing.enabled =1
-			and svcpod.enabled=1
-			and ing.nsuid =svcpod.nsuid
-			and ing.clusterid =svcpod.clusterid
-			and ih.inguid = ing.uid 
-			and ih.backendtype ='service'
-			and svcpod.svcname = ih.backendname`
-		_, err = tx.Exec(context.Background(), stmt_str)
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_INGHOST_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubesvcinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_SVC_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_SVC_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_SVC_INFO+` (
-				svcid     		serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     		text NOT NULL,
-				svcname   		text NOT NULL,
-				uid   				text NOT NULL,
-				starttime   	bigint NOT NULL,
-				labels			text NULL,
-				selector		text NULL,
-				servicetype   text NULL,
-				clusterip   	text NULL,
-				ports   			text NULL,
-				enabled    		integer NOT NULL DEFAULT 0,
-				createdtime   bigint NOT NULL,
-				updatetime    bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		//Create View
-		stmt_str := `create or replace view ` + TB_KUBE_SVC_INFO_V + ` as
-		select *,
-		coalesce((select count(*) from (select nsuid, string_to_array(labels,',') as label_arr from ` + TB_KUBE_POD_INFO + ` where enabled=1) pod
-			where pod.nsuid=svc.nsuid
-			  and pod.label_arr@>string_to_array(svc.selector,',')
-			  and array_length(string_to_array(svc.selector,','),1)>0),0) pods,
-		coalesce((select count(*) from (select nsuid, string_to_array(labels,',') as label_arr from ` + TB_KUBE_POD_INFO + ` where enabled=1 and status='Running') pod
-			where pod.nsuid=svc.nsuid
-			  and pod.label_arr@>string_to_array(svc.selector,',')
-			  and array_length(string_to_array(svc.selector,','),1)>0),0) available_pods
-		from ` + TB_KUBE_SVC_INFO + ` svc
-		where enabled=1`
-		_, err = tx.Exec(context.Background(), stmt_str)
-		errorCheck(err)
-
-		//Create View
-		stmt_str = `create or replace view ` + TB_KUBE_SVCPOD_INFO_V + ` as
-		SELECT svc.svcid,svc.clusterid,svc.nsuid,
-				svc.svcname,svc.uid svcuid, svc.selector,svc.enabled, pod.podid, pod.uid poduid, pod.podname, pod.labels 
-			FROM ` + TB_KUBE_SVC_INFO + ` svc, ` + TB_KUBE_POD_INFO + ` pod
-			WHERE svc.enabled = 1
-				and pod.enabled = 1
-				and svc.nsuid = pod.nsuid 
-				and svc.clusterid =pod.clusterid 
-				and string_to_array(pod.labels,','::text) @> string_to_array(svc.selector,','::text)  
-				and array_length(string_to_array(svc.selector, ','::text), 1) > 0;`
-		_, err = tx.Exec(context.Background(), stmt_str)
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_SVC_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_SVC_INFO, "uid, svcname, nsuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubedeployinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_DEPLOY_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_DEPLOY_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_DEPLOY_INFO+` (
-				deployid     		serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     			text NOT NULL,
-				deployname   		text NOT NULL,
-				uid   					text NOT NULL,
-				starttime   		bigint NOT NULL,
-				labels			text NULL,
-				selector		text NULL,
-				serviceaccount  text NULL,
-				replicas   			bigint NULL DEFAULT 0,
-				updatedrs   		bigint NULL DEFAULT 0,
-				readyrs   			bigint NULL DEFAULT 0,
-				availablers   	bigint NULL DEFAULT 0,
-				observedgen   	bigint NULL DEFAULT 0,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_DEPLOY_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_DEPLOY_INFO, "nsuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubestsinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_STS_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_STS_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_STS_INFO+` (
-				stsid     			serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     			text NOT NULL,
-				stsname   			text NOT NULL,
-				uid   					text NOT NULL,
-				starttime   		bigint NOT NULL,
-				labels			text NULL,
-				selector		text NULL,
-				serviceaccount  text NULL,
-				replicas   			bigint NULL DEFAULT 0,
-				updatedrs   		bigint NULL DEFAULT 0,
-				readyrs   			bigint NULL DEFAULT 0,
-				availablers   	bigint NULL DEFAULT 0,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_STS_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_STS_INFO, "nsuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubedsinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_DS_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_DS_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_DS_INFO+` (
-				dsid     				serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     			text NOT NULL,
-				dsname   				text NOT NULL,
-				uid   					text NOT NULL,
-				starttime   		bigint NOT NULL,
-				labels			text NULL,
-				selector		text NULL,
-				serviceaccount  text NULL,
-				current   			bigint NULL DEFAULT 0,
-				desired   			bigint NULL DEFAULT 0,
-				ready   				bigint NULL DEFAULT 0,
-				updated   			bigint NULL DEFAULT 0,
-				available   		bigint NULL DEFAULT 0,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_DS_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_DS_INFO, "nsuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubersinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_RS_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_RS_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_RS_INFO+` (
-				rsid     				serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     			text NOT NULL,
-				rsname   				text NOT NULL,
-				uid   					text NOT NULL,
-				starttime   		bigint NOT NULL,
-				labels			text NULL,
-				selector		text NULL,
-				replicas  			bigint NULL DEFAULT 0,
-				fullylabeledrs  bigint NULL DEFAULT 0,
-				readyrs   			bigint NULL DEFAULT 0,
-				availablers   	bigint NULL DEFAULT 0,
-				observedgen   	bigint NULL DEFAULT 0,
-				refkind   			text NULL,
-				refuid   				text NULL,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_RS_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_RS_INFO, "nsuid, refkind, refuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubepvcinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_PVC_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_PVC_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_PVC_INFO+` (
-				pvcid     		serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     		text NOT NULL,
-				pvcname   		text NOT NULL,
-				uid   		text NOT NULL,
-				starttime   	bigint NOT NULL,
-				labels			text NULL,
-				selector		text NULL,
-				accessmodes  	text NULL,
-				reqstorage  	bigint NOT NULL default 0,
-				status   		text NULL,
-				scuid   			text NULL,
-				enabled    		integer NOT NULL DEFAULT 0,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_PVC_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_PVC_INFO, "nsuid, scuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubepvinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_PV_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_PV_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_PV_INFO+` (
-				pvid     			serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				pvname   			text NOT NULL,
-				pvuid   			text NOT NULL,
-				pvcuid   			text NOT NULL,
-				starttime   		bigint NOT NULL,
-				labels			text NULL,
-				accessmodes   		text NULL,
-				capacity   			bigint NOT NULL default 0,
-				reclaimpolicy   	text NULL,
-				status   			text NULL,
-				enabled    			integer NOT NULL DEFAULT 0,
-				createdtime   		bigint NOT NULL,
-				updatetime    		bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_PV_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_PV_INFO, "pvcuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubeeventinfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_EVENT_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_EVENT_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_EVENT_INFO+` (
-				eventid     			serial NOT NULL PRIMARY KEY,
-				clusterid     	integer NOT NULL,
-				nsuid     				text NOT NULL,
-				eventname   			text NOT NULL,
-				uid   						text NOT NULL,
-				firsttime   			bigint NOT NULL,
-				lasttime   				bigint NOT NULL DEFAULT 0,
-				labels					text NULL,
-				eventtype  				text NOT NULL,
-				eventcount   			bigint NULL DEFAULT 0,
-				objkind  					text NOT NULL,
-				objuid   			text NOT NULL,
-				srccomponent   		text NOT NULL,
-				srchost   				text NOT NULL,
-				reason   					text NOT NULL,
-				message   				text NULL,
-				enabled    				integer NOT NULL DEFAULT 0,
-				createdtime   		bigint NOT NULL,
-				updatetime    		bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_EVENT_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_EVENT_INFO, "nsuid, objkind, objuid")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func checkKubeloginfo(conn *pgxpool.Conn, ontunetime int64) {
-	if existKubeTableinfo(conn, TB_KUBE_LOG_INFO) {
-		tablever := getKubeTableinfoVer(conn, TB_KUBE_LOG_INFO)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(),
-			`CREATE TABLE IF NOT EXISTS `+TB_KUBE_LOG_INFO+` (
-				logid   		serial NOT NULL PRIMARY KEY,
-				logtype     	text NOT NULL DEFAULT 'pod',
-				nsuid     		text NULL,
-				poduid			text NULL,
-				starttime   	bigint NOT NULL,
-				message   		text NULL,
-				createdtime   	bigint NOT NULL,
-				updatetime    	bigint NOT NULL
-			) `+getTableSpaceStmt(RESOURCE_TABLE, 0))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", TB_KUBE_LOG_INFO, 0, ontunetime, ontunetime, 0)
-		errorCheck(err)
-
-		createIndex(tx, TB_KUBE_LOG_INFO, "starttime, poduid, nsuid, logtype")
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-// realtime perf
-func getTableName(tablename string) string {
-	now := time.Now()
-	createDay := now.Format(DATE_FORMAT)
-
-	return tablename + "_" + createDay
-}
-
-func getMetricColumns(col_type string) string {
-	switch col_type {
-	case "cpu_raw":
-		return `
-		cpuusagesecondstotal	double precision NOT NULL default 0,
-		cpusystemsecondstotal 	double precision NOT NULL default 0,
-		cpuusersecondstotal 	double precision NOT NULL default 0,	
-		`
-	case "cpu":
-		return `
-		cpuusage 				double precision NOT NULL default 0,
-		cpusystem 				double precision NOT NULL default 0,
-		cpuuser 				double precision NOT NULL default 0,
-		cpuusagecores 			double precision NOT NULL default 0,
-		`
-	case "cputotal":
-		return `
-		cputotalcores 			double precision NOT NULL default 0,
-		`
-	case "cpureqlimit":
-		return `
-		cpurequestcores			double precision NOT NULL default 0,
-		cpulimitcores			double precision NOT NULL default 0,
-		`
-	case "memory_raw":
-		return `
-		memoryusagebytes 		double precision NOT NULL default 0,
-		memoryworkingsetbytes 	double precision NOT NULL default 0,
-		memorycache 			double precision NOT NULL default 0,
-		memoryswap 				double precision NOT NULL default 0,
-		memoryrss 				double precision NOT NULL default 0,
-		`
-	case "memory":
-		return `
-		memoryusage 			double precision NOT NULL default 0,
-		memoryusagebytes		double precision NOT NULL default 0,			
-		`
-	case "memorysize":
-		return `
-		memorysizebytes 		double precision NOT NULL default 0,
-		memoryswap 				double precision NOT NULL default 0,
-		`
-	case "memoryreqlimit":
-		return `
-		memoryrequestbytes 		double precision NOT NULL default 0,
-		memorylimitbytes		double precision NOT NULL default 0,
-		memoryswap 				double precision NOT NULL default 0,
-		`
-	case "net_raw":
-		return `
-		networkreceivebytestotal 	double precision NOT NULL default 0,
-		networkreceiveerrorstotal 	double precision NOT NULL default 0,
-		networktransmitbytestotal 	double precision NOT NULL default 0,
-		networktransmiterrorstotal 	double precision NOT NULL default 0,
-		`
-	case "net":
-		return `
-		netiorate 				double precision NOT NULL default 0,
-		netioerrors 			double precision NOT NULL default 0,
-		netreceiverate 			double precision NOT NULL default 0,
-		netreceiveerrors 		double precision NOT NULL default 0,
-		nettransmitrate 		double precision NOT NULL default 0,
-		nettransmiterrors 		double precision NOT NULL default 0,
-		`
-	case "net_noprefix":
-		return `
-		iorate 					double precision NOT NULL default 0,
-		ioerrors 				double precision NOT NULL default 0,
-		receiverate 			double precision NOT NULL default 0,
-		receiveerrors		 	double precision NOT NULL default 0,
-		transmitrate 			double precision NOT NULL default 0,
-		transmiterrors		 	double precision NOT NULL default 0,
-		`
-	case "fs_pre_raw":
-		return `
-		fsinodesfree 				double precision NULL default 0,
-		fsinodestotal 				double precision NULL default 0,
-		fslimitbytes 				double precision NULL default 0,
-		`
-	case "fsrw_raw":
-		return `
-		fsreadsbytestotal 		double precision NOT NULL default 0,
-		fswritesbytestotal 		double precision NOT NULL default 0,
-		`
-	case "fs_post_raw":
-		return `
-		fsusagebytes 				double precision NULL default 0,
-		`
-	case "fs":
-		return `
-		fsiorate 				double precision NOT NULL default 0,
-		fsreadrate 				double precision NOT NULL default 0,
-		fswriterate 			double precision NOT NULL default 0,
-		`
-	case "fs_noprefix":
-		return `
-		iorate 					double precision NOT NULL default 0,
-		readrate 				double precision NOT NULL default 0,
-		writerate	 			double precision NOT NULL default 0,
-		`
-	case "process":
-		return `
-		processes 				double precision NOT NULL default 0,
-		`
+func getCreateResourceTableStmt(tablename string) string {
+	if tablename == TB_KUBE_MANAGER_INFO {
+		return CREATE_TABLE_MANAGER_INFO
+	} else if tablename == TB_KUBE_CLUSTER_INFO {
+		return CREATE_TABLE_CLUSTER_INFO
+	} else if tablename == TB_KUBE_RESOURCE_INFO {
+		return CREATE_TABLE_RESOURCE_INFO
+	} else if tablename == TB_KUBE_NS_INFO {
+		return CREATE_TABLE_NS_INFO
+	} else if tablename == TB_KUBE_NODE_INFO {
+		return CREATE_TABLE_NODE_INFO
+	} else if tablename == TB_KUBE_POD_INFO {
+		return CREATE_TABLE_POD_INFO
+	} else if tablename == TB_KUBE_CONTAINER_INFO {
+		return CREATE_TABLE_CONTAINER_INFO
+	} else if tablename == TB_KUBE_SVC_INFO {
+		return CREATE_TABLE_SVC_INFO
+	} else if tablename == TB_KUBE_PVC_INFO {
+		return CREATE_TABLE_PVC_INFO
+	} else if tablename == TB_KUBE_PV_INFO {
+		return CREATE_TABLE_PV_INFO
+	} else if tablename == TB_KUBE_EVENT_INFO {
+		return CREATE_TABLE_EVENT_INFO
+	} else if tablename == TB_KUBE_LOG_INFO {
+		return CREATE_TABLE_LOG_INFO
+	} else if tablename == TB_KUBE_DEPLOY_INFO {
+		return CREATE_TABLE_DEPLOY_INFO
+	} else if tablename == TB_KUBE_STS_INFO {
+		return CREATE_TABLE_STS_INFO
+	} else if tablename == TB_KUBE_DS_INFO {
+		return CREATE_TABLE_DS_INFO
+	} else if tablename == TB_KUBE_RS_INFO {
+		return CREATE_TABLE_RS_INFO
+	} else if tablename == TB_KUBE_ING_INFO {
+		return CREATE_TABLE_ING_INFO
+	} else if tablename == TB_KUBE_INGHOST_INFO {
+		return CREATE_TABLE_INGHOST_INFO
+	} else if tablename == TB_KUBE_SC_INFO {
+		return CREATE_TABLE_SC_INFO
+	} else if tablename == TB_KUBE_FS_DEVICE_INFO {
+		return CREATE_TABLE_FS_DEVICE_INFO
+	} else if tablename == TB_KUBE_NET_INTERFACE_INFO {
+		return CREATE_TABLE_NET_INTERFACE_INFO
+	} else if tablename == TB_KUBE_METRIC_ID_INFO {
+		return CREATE_TABLE_METRIC_ID_INFO
+	} else if tablename == TB_KUBE_TABLE_INFO {
+		return CREATE_TABLE_TABLE_INFO
 	}
 
 	return ""
 }
 
-func createKubenodePerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
+func createResourceTable(conn *pgxpool.Conn, ontunetime int64, tablename string, cluster_idx_flag bool, enabled_idx_flag bool) bool {
 	if existKubeTableinfo(conn, tablename) {
 		tablever := getKubeTableinfoVer(conn, tablename)
 		ProcessTableVersion(tablever)
+
+		return false
 	} else {
 		//Create Table
 		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return false
+		}
 
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			nodeuid					text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			metricid				int NOT NULL default 0,
-			%s
-			%s
-			%s
-			%s
-			timestampms   			bigint NOT NULL,
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nodeuid, metricid)
-		) %s`, tablename, getMetricColumns("cpu_raw"), getMetricColumns("memory_raw"), getMetricColumns("fsrw_raw"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
+		_, err = tx.Exec(context.Background(), getCreateResourceTableStmt(tablename)+getTableSpaceStmt(RESOURCE_TABLE, 0))
+		if !errorCheck(err) {
+			return false
+		}
 
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
+		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, 0)
+		if !errorCheck(err) {
+			return false
+		}
 
-		setAutoVacuum(tx, tablename)
+		if cluster_idx_flag {
+			createIndex(tx, tablename, "clusterid", "clusterid")
+		}
+
+		if enabled_idx_flag {
+			createIndex(tx, tablename, "enabled", "enabled")
+		}
 
 		err = tx.Commit(context.Background())
-		errorCheck(err)
+
+		return errorCheck(errors.Wrap(err, "Commit error"))
 	}
 }
 
-func createKubenodePerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
+func createResourceView(conn *pgxpool.Conn, ontunetime int64, viewname string, viewstmt string, creation_flag bool) {
+	if creation_flag {
+		//Create View
+		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return
+		}
+
+		_, err = tx.Exec(context.Background(), viewstmt)
+		if !errorCheck(err) {
+			return
+		}
+
+		err = tx.Commit(context.Background())
+		if !errorCheck(errors.Wrap(err, "Commit error")) {
+			return
+		}
+	}
+}
+
+func getCreateMetricTableArgsMetric(argtype string) []any {
+	args := make([]any, 0)
+
+	switch argtype {
+	case "basic_raw":
+		args = append(args, getMetricColumns("cpu_raw"), getMetricColumns("memory_raw"), getMetricColumns("fsrw_raw"), getMetricColumns("process"))
+	case "container_raw":
+		args = append(args, getMetricColumns("cpu_raw"), getMetricColumns("memory_raw"), getMetricColumns("process"))
+	case "net_raw":
+		args = append(args, getMetricColumns("net_raw"))
+	case "nodefs_raw":
+		args = append(args, getMetricColumns("fs_pre_raw"), getMetricColumns("fsrw_raw"), getMetricColumns("fs_post_raw"))
+	case "fs_raw":
+		args = append(args, getMetricColumns("fsrw_raw"))
+	case "basic":
+		args = append(args, getMetricColumns("cpu"), getMetricColumns("cputotal"), getMetricColumns("memory"), getMetricColumns("memorysize"), getMetricColumns(METRIC_VAR_NET), getMetricColumns("fs"), trimLastComma(getMetricColumns("process")))
+	case METRIC_VAR_POD:
+		args = append(args, getMetricColumns("cpu"), getMetricColumns("cpureqlimit"), getMetricColumns("memory"), getMetricColumns("memoryreqlimit"), getMetricColumns(METRIC_VAR_NET), getMetricColumns("fs"), trimLastComma(getMetricColumns("process")))
+	case METRIC_VAR_CONTAINER:
+		args = append(args, getMetricColumns("cpu"), getMetricColumns("cpureqlimit"), getMetricColumns("memory"), getMetricColumns("memoryreqlimit"), getMetricColumns("fs"), trimLastComma(getMetricColumns("process")))
+	case METRIC_VAR_NET:
+		args = append(args, trimLastComma(getMetricColumns("net_noprefix")))
+	case "fs":
+		args = append(args, trimLastComma(getMetricColumns("fs_noprefix")))
+	}
+
+	return args
+}
+
+func getCreateMetricTableArgs(argtype string) []any {
+	args := make([]any, 0)
+
+	switch argtype {
+	case "node_raw":
+		args = append(args, getMetricKeyColumns("basic", METRIC_VAR_NODE))
+		args = append(args, getCreateMetricTableArgsMetric("basic_raw")...)
+	case "pod_raw":
+		args = append(args, getMetricKeyColumns("basic", METRIC_VAR_POD))
+		args = append(args, getCreateMetricTableArgsMetric("basic_raw")...)
+	case "container_raw":
+		args = append(args, getMetricKeyColumns("basic", METRIC_VAR_CONTAINER))
+		args = append(args, getCreateMetricTableArgsMetric("container_raw")...)
+	case "nodenet_raw":
+		args = append(args, getMetricKeyColumns(METRIC_VAR_NET, METRIC_VAR_NODE))
+		args = append(args, getCreateMetricTableArgsMetric("net_raw")...)
+	case "podnet_raw":
+		args = append(args, getMetricKeyColumns(METRIC_VAR_NET, METRIC_VAR_POD))
+		args = append(args, getCreateMetricTableArgsMetric("net_raw")...)
+	case "nodefs_raw":
+		args = append(args, getMetricKeyColumns("fs", METRIC_VAR_NODE))
+		args = append(args, getCreateMetricTableArgsMetric("nodefs_raw")...)
+	case "podfs_raw":
+		args = append(args, getMetricKeyColumns("fs", METRIC_VAR_POD))
+		args = append(args, getCreateMetricTableArgsMetric("fs_raw")...)
+	case "containerfs_raw":
+		args = append(args, getMetricKeyColumns("fs", METRIC_VAR_CONTAINER))
+		args = append(args, getCreateMetricTableArgsMetric("fs_raw")...)
+	case METRIC_VAR_NODE:
+		args = append(args, getMetricKeyColumns("basic", METRIC_VAR_NODE))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	case METRIC_VAR_POD:
+		args = append(args, getMetricKeyColumns("basic", METRIC_VAR_POD))
+		args = append(args, getCreateMetricTableArgsMetric(METRIC_VAR_POD)...)
+	case METRIC_VAR_CONTAINER:
+		args = append(args, getMetricKeyColumns("basic", METRIC_VAR_CONTAINER))
+		args = append(args, getCreateMetricTableArgsMetric(METRIC_VAR_CONTAINER)...)
+	case METRIC_VAR_NODENET:
+		args = append(args, getMetricKeyColumns(METRIC_VAR_NET, METRIC_VAR_NODE))
+		args = append(args, getCreateMetricTableArgsMetric(METRIC_VAR_NET)...)
+	case METRIC_VAR_PODNET:
+		args = append(args, getMetricKeyColumns(METRIC_VAR_NET, METRIC_VAR_POD))
+		args = append(args, getCreateMetricTableArgsMetric(METRIC_VAR_NET)...)
+	case METRIC_VAR_NODEFS:
+		args = append(args, getMetricKeyColumns("fs", METRIC_VAR_NODE))
+		args = append(args, getCreateMetricTableArgsMetric("fs")...)
+	case METRIC_VAR_PODFS:
+		args = append(args, getMetricKeyColumns("fs", METRIC_VAR_POD))
+		args = append(args, getCreateMetricTableArgsMetric("fs")...)
+	case METRIC_VAR_CONTAINERFS:
+		args = append(args, getMetricKeyColumns("fs", METRIC_VAR_CONTAINER))
+		args = append(args, getCreateMetricTableArgsMetric("fs")...)
+	case METRIC_VAR_CLUSTER:
+		args = append(args, getMetricKeyColumns("stat", METRIC_VAR_CLUSTER))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	case METRIC_VAR_NAMESPACE:
+		args = append(args, getMetricKeyColumns("stat", METRIC_VAR_NAMESPACE))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	case METRIC_VAR_DEPLOYMENT:
+		args = append(args, getMetricKeyColumns("stat", METRIC_VAR_DEPLOYMENT))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	case METRIC_VAR_STATEFULSET:
+		args = append(args, getMetricKeyColumns("stat", METRIC_VAR_STATEFULSET))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	case METRIC_VAR_DAEMONSET:
+		args = append(args, getMetricKeyColumns("stat", METRIC_VAR_DAEMONSET))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	case METRIC_VAR_REPLICASET:
+		args = append(args, getMetricKeyColumns("stat", METRIC_VAR_REPLICASET))
+		args = append(args, getCreateMetricTableArgsMetric("basic")...)
+	}
+
+	return args
+}
+
+func createMetricTable(conn *pgxpool.Conn, ontunetime int64, tablename string, tabletype int, stmt string, args []any) bool {
 	if existKubeTableinfo(conn, tablename) {
 		tablever := getKubeTableinfoVer(conn, tablename)
 		ProcessTableVersion(tablever)
+
+		return false
 	} else {
-		//Create Table
 		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return false
+		}
 
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			nodeuid					text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			metricid				int NOT NULL default 0,
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nodeuid, metricid)
-		) %s`, tablename, getMetricColumns("cpu"), getMetricColumns("cputotal"), getMetricColumns("memory"), getMetricColumns("memorysize"), getMetricColumns("net"), getMetricColumns("fs"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
+		insert_args := make([]any, 0)
+		insert_args = append(insert_args, tablename)
+		insert_args = append(insert_args, args...)
 
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
+		_, err = tx.Exec(context.Background(), fmt.Sprintf(stmt, insert_args...)+getTableSpaceStmt(tabletype, ontunetime))
+		if !errorCheck(err) {
+			return false
+		}
 
-		createIndex(tx, tablename, "ontunetime, nodeuid")
-		setAutoVacuum(tx, tablename)
+		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, getTableDuration(tabletype))
+		if !errorCheck(err) {
+			return false
+		}
+
+		if tabletype == LONGTERM_TABLE {
+			setAutoVacuum(tx, tablename)
+		}
 
 		err = tx.Commit(context.Background())
-		errorCheck(err)
+
+		return errorCheck(errors.Wrap(err, "Commit error"))
+	}
+}
+
+func createMetricIndex(conn *pgxpool.Conn, tablename string, midfix string, columns string, creation_flag bool) {
+	if creation_flag {
+		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return
+		}
+
+		createIndex(tx, tablename, midfix, columns)
+
+		err = tx.Commit(context.Background())
+		if !errorCheck(errors.Wrap(err, "Commit error")) {
+			return
+		}
 	}
 }
 
 func checkKubenodePerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubenodePerfRaw(conn, TB_KUBE_LAST_NODE_PERF_RAW, ontunetime)
-	createKubenodePerfRaw(conn, getTableName(TB_KUBE_NODE_PERF_RAW), ontunetime)
-	createKubenodePerf(conn, TB_KUBE_LAST_NODE_PERF, ontunetime)
-	createKubenodePerf(conn, getTableName(TB_KUBE_NODE_PERF), ontunetime)
-}
+	lastnode_raw_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_NODE_PERF_RAW, SHORTTERM_TABLE, CREATE_TABLE_BASIC_RAW, getCreateMetricTableArgs("node_raw"))
+	node_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_BASIC_RAW, getCreateMetricTableArgs("node_raw"))
+	createMetricIndex(conn, TB_KUBE_LAST_NODE_PERF_RAW, "nodeuid", "nodeuid", lastnode_raw_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_PERF_RAW), "nodeuid", "nodeuid, ontunetime", node_raw_flag)
 
-func createKubepodPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			poduid     				text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			nsuid					text NOT NULL default '',
-			nodeuid					text NOT NULL default '',
-			metricid				int NOT NULL default 0,
-			%s
-			%s
-			%s
-			%s
-			timestampms   			bigint NOT NULL,
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, metricid)
-		) %s`, tablename, getMetricColumns("cpu_raw"), getMetricColumns("memory_raw"), getMetricColumns("fsrw_raw"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubepodPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			poduid     				text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			nsuid					text NOT NULL default '',
-			nodeuid					text NOT NULL default '',
-			metricid				int NOT NULL default 0,
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, metricid)
-		) %s`, tablename, getMetricColumns("cpu"), getMetricColumns("cpureqlimit"), getMetricColumns("memory"), getMetricColumns("memoryreqlimit"), getMetricColumns("net"), getMetricColumns("fs"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, poduid, nsuid")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubeClusterPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			clusterid     			int NOT NULL,
-			ontunetime   			bigint NOT NULL,
-			podcount			    int NOT NULL,
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, clusterid)
-		) %s`, tablename, getMetricColumns("cpu"), getMetricColumns("cputotal"), getMetricColumns("memory"), getMetricColumns("memorysize"), getMetricColumns("net"), getMetricColumns("fs"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubeNsPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			nsuid					text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			podcount			    int NOT NULL,
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nsuid)
-		) %s`, tablename, getMetricColumns("cpu"), getMetricColumns("cputotal"), getMetricColumns("memory"), getMetricColumns("memorysize"), getMetricColumns("net"), getMetricColumns("fs"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubeWorkloadPerf(conn *pgxpool.Conn, tablename string, uidname string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			%s 						text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			podcount			    int NOT NULL,
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			%s
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, %s)
-		) %s`, tablename, uidname, getMetricColumns("cpu"), getMetricColumns("cputotal"), getMetricColumns("memory"), getMetricColumns("memorysize"), getMetricColumns("net"), getMetricColumns("fs"), getMetricColumns("process"), tablename, uidname, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubeSvcPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-}
-
-func createKubeIngPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
+	lastnode_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_NODE_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NODE))
+	node_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NODE))
+	createMetricIndex(conn, TB_KUBE_LAST_NODE_PERF, "nodeuid", "nodeuid", lastnode_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_PERF), "nodeuid", "nodeuid, ontunetime", node_flag)
 }
 
 func checkKubepodPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubepodPerfRaw(conn, TB_KUBE_LAST_POD_PERF_RAW, ontunetime)
-	createKubepodPerfRaw(conn, getTableName(TB_KUBE_POD_PERF_RAW), ontunetime)
-	createKubepodPerf(conn, TB_KUBE_LAST_POD_PERF, ontunetime)
-	createKubepodPerf(conn, getTableName(TB_KUBE_POD_PERF), ontunetime)
+	lastpod_raw_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_POD_PERF_RAW, SHORTTERM_TABLE, CREATE_TABLE_BASIC_RAW, getCreateMetricTableArgs("pod_raw"))
+	pod_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_BASIC_RAW, getCreateMetricTableArgs("pod_raw"))
+	createMetricIndex(conn, TB_KUBE_LAST_POD_PERF_RAW, "nodeuid", "nodeuid", lastpod_raw_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_PERF_RAW), "poduid", "poduid, ontunetime", pod_raw_flag)
 
-	createKubeClusterPerf(conn, getTableName(TB_KUBE_CLUSTER_PERF), ontunetime)
-	createKubeNsPerf(conn, getTableName(TB_KUBE_NAMESPACE_PERF), ontunetime)
-	createKubeWorkloadPerf(conn, getTableName(TB_KUBE_REPLICASET_PERF), "rsuid", ontunetime)
-	createKubeWorkloadPerf(conn, getTableName(TB_KUBE_DAEMONSET_PERF), "dsuid", ontunetime)
-	createKubeWorkloadPerf(conn, getTableName(TB_KUBE_STATEFULSET_PERF), "stsuid", ontunetime)
-	createKubeWorkloadPerf(conn, getTableName(TB_KUBE_DEPLOYMENT_PERF), "deployuid", ontunetime)
-	createKubeSvcPerf(conn, getTableName(TB_KUBE_SERVICE_PERF), ontunetime)
-	createKubeIngPerf(conn, getTableName(TB_KUBE_INGRESS_PERF), ontunetime)
+	lastpod_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_POD_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_POD))
+	pod_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_POD))
+	createMetricIndex(conn, TB_KUBE_LAST_POD_PERF, "nodeuid", "nodeuid", lastpod_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_POD_PERF, "poduid", "poduid", lastpod_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_PERF), "poduid", "poduid, ontunetime", pod_flag)
 
-	createKubeClusterPerf(conn, TB_KUBE_LAST_CLUSTER_PERF, ontunetime)
-	createKubeNsPerf(conn, TB_KUBE_LAST_NAMESPACE_PERF, ontunetime)
-	createKubeWorkloadPerf(conn, TB_KUBE_LAST_REPLICASET_PERF, "rsuid", ontunetime)
-	createKubeWorkloadPerf(conn, TB_KUBE_LAST_DAEMONSET_PERF, "dsuid", ontunetime)
-	createKubeWorkloadPerf(conn, TB_KUBE_LAST_STATEFULSET_PERF, "stsuid", ontunetime)
-	createKubeWorkloadPerf(conn, TB_KUBE_LAST_DEPLOYMENT_PERF, "deployuid", ontunetime)
-	createKubeSvcPerf(conn, TB_KUBE_LAST_SERVICE_PERF, ontunetime)
-	createKubeIngPerf(conn, TB_KUBE_LAST_INGRESS_PERF, ontunetime)
-}
+	lastcluster_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_CLUSTER_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_CLUSTER))
+	lastns_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_NAMESPACE_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NAMESPACE))
+	lastdeploy_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_DEPLOYMENT_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DEPLOYMENT))
+	laststs_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_STATEFULSET_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_STATEFULSET))
+	lastds_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_DAEMONSET_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DAEMONSET))
+	lastrs_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_REPLICASET_PERF, SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_REPLICASET))
+	createMetricIndex(conn, TB_KUBE_LAST_CLUSTER_PERF, "clusterid", "clusterid", lastcluster_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_NAMESPACE_PERF, "nsuid", "nsuid", lastns_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_DEPLOYMENT_PERF, "deployuid", "deployuid", lastdeploy_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_STATEFULSET_PERF, "stsuid", "stsuid", laststs_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_DAEMONSET_PERF, "dsuid", "dsuid", lastds_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_REPLICASET_PERF, "rsuid", "rsuid", lastrs_flag)
 
-func createKubecontainerPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				containername     		text NOT NULL default '',
-				ontunetime   			bigint NOT NULL,
-				poduid					text NOT NULL default '',
-				nsuid					text NOT NULL default '',
-				nodeuid					text NOT NULL default '',
-				metricid				int NOT NULL default 0,
-				%s
-				%s
-				%s
-				timestampms   			bigint NOT NULL,
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, containername, metricid)
-			) %s`, tablename, getMetricColumns("cpu_raw"), getMetricColumns("memory_raw"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubecontainerPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				containername     		text NOT NULL default '',
-				ontunetime   			bigint NOT NULL,
-				poduid					text NOT NULL default '',
-				nsuid					text NOT NULL default '',
-				nodeuid					text NOT NULL default '',
-				metricid				int NOT NULL default 0,
-				%s
-				%s
-				%s
-				%s
-				%s
-				%s
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, containername, metricid)
-			) %s`, tablename, getMetricColumns("cpu"), getMetricColumns("cpureqlimit"), getMetricColumns("memory"), getMetricColumns("memoryreqlimit"), getMetricColumns("fs"), getMetricColumns("process"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, poduid, containername")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
+	cluster_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CLUSTER_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_CLUSTER))
+	ns_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NAMESPACE_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NAMESPACE))
+	deploy_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_DEPLOYMENT_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DEPLOYMENT))
+	sts_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_STATEFULSET_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_STATEFULSET))
+	ds_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_DAEMONSET_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DAEMONSET))
+	rs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_REPLICASET_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_REPLICASET))
+	createMetricIndex(conn, getTableName(TB_KUBE_CLUSTER_PERF), "clusterid", "clusterid, ontunetime", cluster_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_NAMESPACE_PERF), "nsuid", "nsuid, ontunetime", ns_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_DEPLOYMENT_PERF), "deployuid", "deployuid, ontunetime", deploy_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_STATEFULSET_PERF), "stsuid", "stsuid, ontunetime", sts_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_DAEMONSET_PERF), "dsuid", "dsuid, ontunetime", ds_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_REPLICASET_PERF), "rsuid", "rsuid, ontunetime", rs_flag)
 }
 
 func checkKubecontainerPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubecontainerPerfRaw(conn, TB_KUBE_LAST_CONTAINER_PERF_RAW, ontunetime)
-	createKubecontainerPerfRaw(conn, getTableName(TB_KUBE_CONTAINER_PERF_RAW), ontunetime)
-	createKubecontainerPerf(conn, TB_KUBE_LAST_CONTAINER_PERF, ontunetime)
-	createKubecontainerPerf(conn, getTableName(TB_KUBE_CONTAINER_PERF), ontunetime)
-}
+	lastcontainer_raw_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_CONTAINER_PERF_RAW, SHORTTERM_TABLE, CREATE_TABLE_FOUR_PARAMS_RAW, getCreateMetricTableArgs("container_raw"))
+	container_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CONTAINER_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_FOUR_PARAMS_RAW, getCreateMetricTableArgs("container_raw"))
+	createMetricIndex(conn, TB_KUBE_LAST_CONTAINER_PERF_RAW, "nodeuid", "nodeuid", lastcontainer_raw_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_CONTAINER_PERF_RAW), "containername", "containername, poduid, ontunetime", container_raw_flag)
 
-func createKubeNodeNetPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				nodeuid						text NOT NULL default '',
-				ontunetime		   			bigint NOT NULL,
-				metricid					int NOT NULL default 0,
-				interfaceid               	int NOT NULL default 0,
-				%s
-				timestampms		   			bigint NOT NULL,
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nodeuid, metricid, interfaceid)
-			) %s`, tablename, getMetricColumns("net_raw"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubeNodeNetPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			nodeuid					text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			metricid				int NOT NULL default 0,
-			interfaceid             int NOT NULL default 0,
-			%s
-		CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nodeuid, metricid, interfaceid)
-		) %s`, tablename, getMetricColumns("net_noprefix"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, nodeuid, interfaceid")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
+	lastcontainer_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_CONTAINER_PERF, SHORTTERM_TABLE, CREATE_TABLE_CONTAINER_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINER))
+	container_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CONTAINER_PERF), SHORTTERM_TABLE, CREATE_TABLE_CONTAINER_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINER))
+	createMetricIndex(conn, TB_KUBE_LAST_CONTAINER_PERF, "nodeuid", "nodeuid", lastcontainer_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_CONTAINER_PERF, "containername", "containername, poduid", lastcontainer_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_CONTAINER_PERF), "containername", "containername, poduid, ontunetime", container_flag)
 }
 
 func checkKubeNodeNetPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubeNodeNetPerfRaw(conn, getTableName(TB_KUBE_NODE_NET_PERF_RAW), ontunetime)
-	createKubeNodeNetPerf(conn, TB_KUBE_LAST_NODE_NET_PERF, ontunetime)
-	createKubeNodeNetPerf(conn, getTableName(TB_KUBE_NODE_NET_PERF), ontunetime)
-}
+	nodenet_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_NET_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("nodenet_raw"))
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_NET_PERF_RAW), "nodeuid", "nodeuid, ontunetime", nodenet_raw_flag)
 
-func createKubePodNetPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				poduid     					text NOT NULL default '',
-				ontunetime		   			bigint NOT NULL,
-				nsuid						text NOT NULL default '',
-				nodeuid						text NOT NULL default '',
-				metricid					int NOT NULL default 0,
-				interfaceid               	int NOT NULL default 0,
-				%s
-				timestampms		   			bigint NOT NULL,
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, metricid, interfaceid)
-			) %s`, tablename, getMetricColumns("net_raw"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubePodNetPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			poduid     				text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			nsuid					text NOT NULL default '',
-			nodeuid					text NOT NULL default '',
-			metricid				int NOT NULL default 0,
-			interfaceid             int NOT NULL default 0,
-			%s
-			CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, metricid, interfaceid)
-		) %s`, tablename, getMetricColumns("net_noprefix"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, poduid, nsuid, interfaceid")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
+	lastnodenet_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_NODE_NET_PERF, SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODENET))
+	nodenet_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_NET_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODENET))
+	createMetricIndex(conn, TB_KUBE_LAST_NODE_NET_PERF, "nodeuid", "nodeuid", lastnodenet_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_NET_PERF), "nodeuid", "nodeuid, ontunetime", nodenet_flag)
 }
 
 func checkKubePodNetPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubePodNetPerfRaw(conn, getTableName(TB_KUBE_POD_NET_PERF_RAW), ontunetime)
-	createKubePodNetPerf(conn, TB_KUBE_LAST_POD_NET_PERF, ontunetime)
-	createKubePodNetPerf(conn, getTableName(TB_KUBE_POD_NET_PERF), ontunetime)
-}
+	podnet_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_NET_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("podnet_raw"))
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_NET_PERF_RAW), "poduid", "poduid, ontunetime", podnet_raw_flag)
 
-func createKubeNodeFsPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				nodeuid						text NOT NULL default '',
-				ontunetime  		 		bigint NOT NULL,
-				metricid					int NOT NULL default 0,				
-				deviceid					int NOT NULL default 0,
-				%s
-				%s
-				%s
-				timestampms		   			bigint NOT NULL,
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nodeuid, metricid, deviceid)
-			) %s`, tablename, getMetricColumns("fs_pre_raw"), getMetricColumns("fsrw_raw"), getMetricColumns("fs_post_raw"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubeNodeFsPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			nodeuid					text NOT NULL default '',
-			ontunetime   			bigint NOT NULL,
-			metricid				int NOT NULL default 0,
-			deviceid             	int NOT NULL default 0,
-			%s
-		CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, nodeuid, metricid, deviceid)
-		) %s`, tablename, getMetricColumns("fs_noprefix"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, nodeuid, deviceid")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
+	lastpodnet_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_POD_NET_PERF, SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODNET))
+	podnet_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_NET_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODNET))
+	createMetricIndex(conn, TB_KUBE_LAST_POD_NET_PERF, "nodeuid", "nodeuid", lastpodnet_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_POD_NET_PERF, "poduid", "poduid", lastpodnet_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_NET_PERF), "poduid", "poduid, ontunetime", podnet_flag)
 }
 
 func checkKubeNodeFsPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubeNodeFsPerfRaw(conn, getTableName(TB_KUBE_NODE_FS_PERF_RAW), ontunetime)
-	createKubeNodeFsPerf(conn, TB_KUBE_LAST_NODE_FS_PERF, ontunetime)
-	createKubeNodeFsPerf(conn, getTableName(TB_KUBE_NODE_FS_PERF), ontunetime)
-}
+	nodefs_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_FS_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_FOUR_PARAMS_RAW, getCreateMetricTableArgs("nodefs_raw"))
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_FS_PERF_RAW), "nodeuid", "nodeuid, ontunetime", nodefs_raw_flag)
 
-func createKubePodFsPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				poduid						text NOT NULL default '',
-				ontunetime  		 		bigint NOT NULL,
-				nsuid						text NOT NULL default '',
-				nodeuid						text NOT NULL default '',
-				metricid					int NOT NULL default 0,				
-				deviceid					int NOT NULL default 0,
-				%s
-				timestampms		   			bigint NOT NULL,
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, metricid, deviceid)
-			) %s`, tablename, getMetricColumns("fsrw_raw"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
-}
-
-func createKubePodFsPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			poduid     					text NOT NULL default '',
-			ontunetime		   			bigint NOT NULL,
-			nsuid						text NOT NULL default '',
-			nodeuid						text NOT NULL default '',
-			metricid					int NOT NULL default 0,
-			deviceid             		int NOT NULL default 0,
-			%s
-		CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, metricid, deviceid)
-		) %s`, tablename, getMetricColumns("fs_noprefix"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, poduid, nsuid, deviceid")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
+	lastnodefs_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_NODE_FS_PERF, SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODEFS))
+	nodefs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_FS_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODEFS))
+	createMetricIndex(conn, TB_KUBE_LAST_NODE_FS_PERF, "nodeuid", "nodeuid", lastnodefs_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_FS_PERF), "nodeuid", "nodeuid, ontunetime", nodefs_flag)
 }
 
 func checkKubePodFsPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubePodFsPerfRaw(conn, getTableName(TB_KUBE_POD_FS_PERF_RAW), ontunetime)
-	createKubePodFsPerf(conn, TB_KUBE_LAST_POD_FS_PERF, ontunetime)
-	createKubePodFsPerf(conn, getTableName(TB_KUBE_POD_FS_PERF), ontunetime)
-}
+	podfs_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_FS_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("podfs_raw"))
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_FS_PERF_RAW), "poduid", "poduid, ontunetime", podfs_raw_flag)
 
-func createKubeContainerFsPerfRaw(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				containername     			text NOT NULL default '',
-				ontunetime  		 		bigint NOT NULL,
-				poduid						text NOT NULL default '',
-				nsuid						text NOT NULL default '',
-				nodeuid						text NOT NULL default '',
-				metricid					int NOT NULL default 0,				
-				deviceid					int NOT NULL default 0,
-				%s
-				timestampms		   			bigint NOT NULL,
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, containername, metricid, deviceid)
-			) %s`, tablename, getMetricColumns("fsrw_raw"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		setAutoVacuum(tx, tablename)
-	}
-}
-
-func createKubeContainerFsPerf(conn *pgxpool.Conn, tablename string, ontunetime int64) {
-	if existKubeTableinfo(conn, tablename) {
-		tablever := getKubeTableinfoVer(conn, tablename)
-		ProcessTableVersion(tablever)
-	} else {
-		//Create Table
-		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				containername     		text NOT NULL default '',
-				ontunetime   			bigint NOT NULL,
-				poduid					text NOT NULL default '',
-				nsuid					text NOT NULL default '',
-				nodeuid					text NOT NULL default '',
-				metricid				int NOT NULL default 0,
-				deviceid             	int NOT NULL default 0,
-				%s
-				CONSTRAINT %s_pkey PRIMARY KEY (ontunetime, poduid, nsuid, nodeuid, containername, metricid, deviceid)
-			) %s`, tablename, getMetricColumns("fs_noprefix"), tablename, getTableSpaceStmt(SHORTERM_TABLE, ontunetime)))
-		errorCheck(err)
-
-		_, err = tx.Exec(context.Background(), "INSERT INTO  "+TB_KUBE_TABLE_INFO+"  VALUES ($1, $2, $3, $4, $5)", tablename, 0, ontunetime, ontunetime, common.ShorttermDuration)
-		errorCheck(err)
-
-		createIndex(tx, tablename, "ontunetime, poduid, containername, deviceid")
-
-		setAutoVacuum(tx, tablename)
-
-		err = tx.Commit(context.Background())
-		errorCheck(err)
-	}
+	lastpodfs_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_POD_FS_PERF, SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODFS))
+	podfs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_FS_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODFS))
+	createMetricIndex(conn, TB_KUBE_LAST_POD_FS_PERF, "nodeuid", "nodeuid", lastpodfs_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_POD_FS_PERF, "poduid", "poduid", lastpodfs_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_FS_PERF), "poduid", "poduid, ontunetime", podfs_flag)
 }
 
 func checkKubeContainerFsPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubeContainerFsPerfRaw(conn, getTableName(TB_KUBE_CONTAINER_FS_PERF_RAW), ontunetime)
-	createKubeContainerFsPerf(conn, TB_KUBE_LAST_CONTAINER_FS_PERF, ontunetime)
-	createKubeContainerFsPerf(conn, getTableName(TB_KUBE_CONTAINER_FS_PERF), ontunetime)
+	containerfs_raw_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CONTAINER_FS_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("containerfs_raw"))
+	createMetricIndex(conn, getTableName(TB_KUBE_CONTAINER_FS_PERF_RAW), "containername", "containername, poduid, ontunetime", containerfs_raw_flag)
+
+	lastcontainerfs_flag := createMetricTable(conn, ontunetime, TB_KUBE_LAST_CONTAINER_FS_PERF, SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINERFS))
+	containerfs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CONTAINER_FS_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINERFS))
+	createMetricIndex(conn, TB_KUBE_LAST_CONTAINER_FS_PERF, "nodeuid", "nodeuid", lastcontainerfs_flag)
+	createMetricIndex(conn, TB_KUBE_LAST_CONTAINER_FS_PERF, "containername", "containername, poduid", lastcontainerfs_flag)
+	createMetricIndex(conn, getTableName(TB_KUBE_CONTAINER_FS_PERF), "containername", "containername, poduid, ontunetime", containerfs_flag)
+}
+
+func checkKubeAvgPerf(conn *pgxpool.Conn, ontunetime int64) {
+	node_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NODE))
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_AVG_PERF), "nodeuid", "nodeuid, ontunetime", node_flag)
+
+	pod_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_POD))
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_AVG_PERF), "poduid", "poduid, ontunetime", pod_flag)
+
+	cluster_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CLUSTER_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_CLUSTER))
+	createMetricIndex(conn, getTableName(TB_KUBE_CLUSTER_AVG_PERF), "clusterid", "clusterid, ontunetime", cluster_flag)
+
+	ns_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NAMESPACE_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NAMESPACE))
+	createMetricIndex(conn, getTableName(TB_KUBE_NAMESPACE_AVG_PERF), "nsuid", "nsuid, ontunetime", ns_flag)
+
+	deployment_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_DEPLOYMENT_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DEPLOYMENT))
+	createMetricIndex(conn, getTableName(TB_KUBE_DEPLOYMENT_AVG_PERF), "deployuid", "deployuid, ontunetime", deployment_flag)
+
+	statefulset_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_STATEFULSET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_STATEFULSET))
+	createMetricIndex(conn, getTableName(TB_KUBE_STATEFULSET_AVG_PERF), "stsuid", "stsuid, ontunetime", statefulset_flag)
+
+	daemonset_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_DAEMONSET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DAEMONSET))
+	createMetricIndex(conn, getTableName(TB_KUBE_DAEMONSET_AVG_PERF), "dsuid", "dsuid, ontunetime", daemonset_flag)
+
+	replicaset_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_REPLICASET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_REPLICASET))
+	createMetricIndex(conn, getTableName(TB_KUBE_REPLICASET_AVG_PERF), "rsuid", "rsuid, ontunetime", replicaset_flag)
+
+	container_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CONTAINER_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_CONTAINER_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINER))
+	createMetricIndex(conn, getTableName(TB_KUBE_CONTAINER_AVG_PERF), "containername", "containername, poduid, ontunetime", container_flag)
+
+	nodenet_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_NET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODENET))
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_NET_AVG_PERF), "nodeuid", "nodeuid, ontunetime", nodenet_flag)
+
+	podnet_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_NET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODNET))
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_NET_AVG_PERF), "poduid", "poduid, ontunetime", podnet_flag)
+
+	nodefs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_NODE_FS_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODEFS))
+	createMetricIndex(conn, getTableName(TB_KUBE_NODE_FS_AVG_PERF), "nodeuid", "nodeuid, ontunetime", nodefs_flag)
+
+	podfs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_POD_FS_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODFS))
+	createMetricIndex(conn, getTableName(TB_KUBE_POD_FS_AVG_PERF), "poduid", "poduid, ontunetime", podfs_flag)
+
+	containerfs_flag := createMetricTable(conn, ontunetime, getTableName(TB_KUBE_CONTAINER_FS_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINERFS))
+	createMetricIndex(conn, getTableName(TB_KUBE_CONTAINER_FS_AVG_PERF), "containername", "containername, poduid, ontunetime", containerfs_flag)
 }
 
 // Daily Table
@@ -1734,91 +457,185 @@ func getDailyTableName(tablename string) string {
 }
 
 func dailyKubenodePerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubenodePerfRaw(conn, getDailyTableName(TB_KUBE_NODE_PERF_RAW), ontunetime)
-	createKubenodePerf(conn, getDailyTableName(TB_KUBE_NODE_PERF), ontunetime)
+	node_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_BASIC_RAW, getCreateMetricTableArgs("node_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_PERF_RAW), "nodeuid", "nodeuid, ontunetime", node_raw_realtime_flag)
+
+	node_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NODE))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_PERF), "nodeuid", "nodeuid, ontunetime", node_realtime_flag)
+
+	node_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NODE))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_AVG_PERF), "nodeuid", "nodeuid, ontunetime", node_avg_flag)
 }
 
 func dailyKubepodPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubepodPerfRaw(conn, getDailyTableName(TB_KUBE_POD_PERF_RAW), ontunetime)
-	createKubepodPerf(conn, getDailyTableName(TB_KUBE_POD_PERF), ontunetime)
+	pod_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_BASIC_RAW, getCreateMetricTableArgs("pod_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_PERF_RAW), "poduid", "poduid, ontunetime", pod_raw_realtime_flag)
 
-	createKubeClusterPerf(conn, getDailyTableName(TB_KUBE_CLUSTER_PERF), ontunetime)
-	createKubeNsPerf(conn, getDailyTableName(TB_KUBE_NAMESPACE_PERF), ontunetime)
-	createKubeWorkloadPerf(conn, getDailyTableName(TB_KUBE_REPLICASET_PERF), "rsuid", ontunetime)
-	createKubeWorkloadPerf(conn, getDailyTableName(TB_KUBE_DAEMONSET_PERF), "dsuid", ontunetime)
-	createKubeWorkloadPerf(conn, getDailyTableName(TB_KUBE_STATEFULSET_PERF), "stsuid", ontunetime)
-	createKubeWorkloadPerf(conn, getDailyTableName(TB_KUBE_DEPLOYMENT_PERF), "deployuid", ontunetime)
-	createKubeSvcPerf(conn, getDailyTableName(TB_KUBE_SERVICE_PERF), ontunetime)
-	createKubeIngPerf(conn, getDailyTableName(TB_KUBE_INGRESS_PERF), ontunetime)
+	pod_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_POD))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_PERF), "poduid", "poduid, ontunetime", pod_realtime_flag)
+
+	pod_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_POD))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_AVG_PERF), "poduid", "poduid, ontunetime", pod_avg_flag)
+
+	cluster_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CLUSTER_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_CLUSTER))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CLUSTER_PERF), "clusterid", "clusterid, ontunetime", cluster_realtime_flag)
+
+	ns_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NAMESPACE_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NAMESPACE))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NAMESPACE_PERF), "nsuid", "nsuid, ontunetime", ns_realtime_flag)
+
+	deploy_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_DEPLOYMENT_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DEPLOYMENT))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_DEPLOYMENT_PERF), "deployuid", "deployuid, ontunetime", deploy_realtime_flag)
+
+	sts_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_STATEFULSET_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_STATEFULSET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_STATEFULSET_PERF), "stsuid", "stsuid, ontunetime", sts_realtime_flag)
+
+	ds_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_DAEMONSET_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DAEMONSET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_DAEMONSET_PERF), "dsuid", "dsuid, ontunetime", ds_realtime_flag)
+
+	rs_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_REPLICASET_PERF), SHORTTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_REPLICASET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_REPLICASET_PERF), "rsuid", "rsuid, ontunetime", rs_realtime_flag)
+
+	cluster_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CLUSTER_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_CLUSTER))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CLUSTER_AVG_PERF), "clusterid", "clusterid, ontunetime", cluster_avg_flag)
+
+	ns_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NAMESPACE_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_NAMESPACE))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NAMESPACE_AVG_PERF), "nsuid", "nsuid, ontunetime", ns_avg_flag)
+
+	deploy_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_DEPLOYMENT_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DEPLOYMENT))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_DEPLOYMENT_AVG_PERF), "deployuid", "deployuid, ontunetime", deploy_avg_flag)
+
+	sts_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_STATEFULSET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_STATEFULSET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_STATEFULSET_AVG_PERF), "stsuid", "stsuid, ontunetime", sts_avg_flag)
+
+	ds_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_DAEMONSET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_DAEMONSET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_DAEMONSET_AVG_PERF), "dsuid", "dsuid, ontunetime", ds_avg_flag)
+
+	rs_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_REPLICASET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_BASIC_PERF, getCreateMetricTableArgs(METRIC_VAR_REPLICASET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_REPLICASET_AVG_PERF), "rsuid", "rsuid, ontunetime", rs_avg_flag)
 }
 
 func dailyKubecontainerPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubecontainerPerfRaw(conn, getDailyTableName(TB_KUBE_CONTAINER_PERF_RAW), ontunetime)
-	createKubecontainerPerf(conn, getDailyTableName(TB_KUBE_CONTAINER_PERF), ontunetime)
+	container_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CONTAINER_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_FOUR_PARAMS_RAW, getCreateMetricTableArgs("container_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CONTAINER_PERF_RAW), "containername", "containername, poduid, ontunetime", container_raw_realtime_flag)
+
+	container_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CONTAINER_PERF), SHORTTERM_TABLE, CREATE_TABLE_CONTAINER_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINER))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CONTAINER_PERF), "containername", "containername, poduid, ontunetime", container_realtime_flag)
+
+	container_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CONTAINER_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_CONTAINER_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINER))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CONTAINER_AVG_PERF), "containername", "containername, poduid, ontunetime", container_avg_flag)
 }
 
 func dailyKubeNodeNetPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubeNodeNetPerfRaw(conn, getDailyTableName(TB_KUBE_NODE_NET_PERF_RAW), ontunetime)
-	createKubeNodeNetPerf(conn, getDailyTableName(TB_KUBE_NODE_NET_PERF), ontunetime)
+	nodenet_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_NET_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("nodenet_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_NET_PERF_RAW), "nodeuid", "nodeuid, ontunetime", nodenet_raw_realtime_flag)
+
+	nodenet_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_NET_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODENET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_NET_PERF), "nodeuid", "nodeuid, ontunetime", nodenet_realtime_flag)
+
+	nodenet_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_NET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODENET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_NET_AVG_PERF), "nodeuid", "nodeuid, ontunetime", nodenet_avg_flag)
 }
 
 func dailyKubePodNetPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubePodNetPerfRaw(conn, getDailyTableName(TB_KUBE_POD_NET_PERF_RAW), ontunetime)
-	createKubePodNetPerf(conn, getDailyTableName(TB_KUBE_POD_NET_PERF), ontunetime)
+	podnet_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_NET_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("podnet_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_NET_PERF_RAW), "poduid", "poduid, ontunetime", podnet_raw_realtime_flag)
+
+	podnet_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_NET_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODNET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_NET_PERF), "poduid", "poduid, ontunetime", podnet_realtime_flag)
+
+	podnet_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_NET_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODNET))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_NET_AVG_PERF), "poduid", "poduid, ontunetime", podnet_avg_flag)
 }
 
 func dailyKubeNodeFsPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubeNodeFsPerfRaw(conn, getDailyTableName(TB_KUBE_NODE_FS_PERF_RAW), ontunetime)
-	createKubeNodeFsPerf(conn, getDailyTableName(TB_KUBE_NODE_FS_PERF), ontunetime)
+	nodefs_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_FS_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_FOUR_PARAMS_RAW, getCreateMetricTableArgs("nodefs_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_FS_PERF_RAW), "nodeuid", "nodeuid, ontunetime", nodefs_raw_realtime_flag)
+
+	nodefs_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_FS_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODEFS))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_FS_PERF), "nodeuid", "nodeuid, ontunetime", nodefs_realtime_flag)
+
+	nodefs_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_NODE_FS_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_NODEFS))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_NODE_FS_AVG_PERF), "nodeuid", "nodeuid, ontunetime", nodefs_avg_flag)
 }
 
 func dailyKubePodFsPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubePodFsPerfRaw(conn, getDailyTableName(TB_KUBE_POD_FS_PERF_RAW), ontunetime)
-	createKubePodFsPerf(conn, getDailyTableName(TB_KUBE_POD_FS_PERF), ontunetime)
+	podfs_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_FS_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("podfs_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_FS_PERF_RAW), "poduid", "poduid, ontunetime", podfs_raw_realtime_flag)
+
+	podfs_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_FS_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODFS))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_FS_PERF), "poduid", "poduid, ontunetime", podfs_realtime_flag)
+
+	podfs_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_POD_FS_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_PODFS))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_POD_FS_AVG_PERF), "poduid", "poduid, ontunetime", podfs_avg_flag)
 }
 
 func dailyKubeContainerFsPerf(conn *pgxpool.Conn, ontunetime int64) {
-	createKubeContainerFsPerfRaw(conn, getDailyTableName(TB_KUBE_CONTAINER_FS_PERF_RAW), ontunetime)
-	createKubeContainerFsPerf(conn, getDailyTableName(TB_KUBE_CONTAINER_FS_PERF), ontunetime)
+	containerfs_raw_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CONTAINER_FS_PERF_RAW), SHORTTERM_TABLE, CREATE_TABLE_TWO_PARAMS_RAW, getCreateMetricTableArgs("containerfs_raw"))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CONTAINER_FS_PERF_RAW), "containername", "containername, poduid, ontunetime", containerfs_raw_realtime_flag)
+
+	containerfs_realtime_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CONTAINER_FS_PERF), SHORTTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINERFS))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CONTAINER_FS_PERF), "containername", "containername, poduid, ontunetime", containerfs_realtime_flag)
+
+	containerfs_avg_flag := createMetricTable(conn, ontunetime, getDailyTableName(TB_KUBE_CONTAINER_FS_AVG_PERF), LONGTERM_TABLE, CREATE_TABLE_DETAILS_PERF, getCreateMetricTableArgs(METRIC_VAR_CONTAINERFS))
+	createMetricIndex(conn, getDailyTableName(TB_KUBE_CONTAINER_FS_AVG_PERF), "containername", "containername, poduid, ontunetime", containerfs_avg_flag)
 }
 
-func createIndex(tx pgx.Tx, tablename string, column string) {
-	SQL := "CREATE INDEX IF NOT EXISTS i" + tablename + " ON " + tablename + " using btree ( " + column + ")"
+func createIndex(tx pgx.Tx, tablename string, postfix string, column string) {
+	SQL := "CREATE INDEX IF NOT EXISTS " + tablename + "_" + postfix + "_idx ON " + tablename + " using btree ( " + column + ")"
 	_, err := tx.Exec(context.Background(), SQL)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 }
 
 func existKubeTableinfo(conn *pgxpool.Conn, tablename string) bool {
-	var selName string
-	SQL := "select tablename from " + TB_KUBE_TABLE_INFO + " where tablename = '" + tablename + "'"
+	var kubetbcount int
+	SQL := "select count(*) from " + TB_KUBE_TABLE_INFO + " where tablename = '" + tablename + "'"
 
-	err := conn.QueryRow(context.Background(), SQL).Scan(&selName)
-	errorCheck(err)
-	if selName == "" {
+	err := conn.QueryRow(context.Background(), SQL).Scan(&kubetbcount)
+	if !errorCheck(err) {
+		return false
+	}
+
+	if kubetbcount == 0 {
 		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return false
+		}
 
 		_, err = tx.Exec(context.Background(), fmt.Sprintf("DROP TABLE IF EXISTS %s", tablename))
-		errorCheck(err)
+		if !errorCheck(err) {
+			return false
+		}
 
 		err = tx.Commit(context.Background())
-		errorCheck(err)
+		if !errorCheck(err) {
+			return false
+		}
 
 		return false
 	} else {
-		var selPgName string
-		err := conn.QueryRow(context.Background(), "select tablename from pg_tables where tablename = $1", tablename).Scan(&selPgName)
-		errorCheck(err)
+		var pgtbcount int
+		err := conn.QueryRow(context.Background(), "select count(*) from pg_tables where tablename = $1", tablename).Scan(&pgtbcount)
+		if !errorCheck(err) {
+			return false
+		}
 
 		tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-		errorCheck(err)
+		if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+			return false
+		}
 
-		if selPgName == "" {
+		if pgtbcount == 0 {
 			_, err = tx.Exec(context.Background(), fmt.Sprintf("DELETE FROM %s where tablename = '%s'", TB_KUBE_TABLE_INFO, tablename))
-			errorCheck(err)
+			if !errorCheck(err) {
+				return false
+			}
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(err) {
+				return false
+			}
 
 			return false
 		} else {
@@ -1832,7 +649,9 @@ func getKubeTableinfoVer(conn *pgxpool.Conn, tablename string) int {
 	SQL := "select version from " + TB_KUBE_TABLE_INFO + " where tablename = '" + tablename + "'"
 
 	err := conn.QueryRow(context.Background(), SQL).Scan(&selVer)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	return selVer
 }

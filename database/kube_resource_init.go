@@ -1,27 +1,62 @@
 package database
 
 import (
+	"context"
+	"fmt"
 	"onTuneKubeManager/common"
 	"onTuneKubeManager/kubeapi"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/pkg/errors"
 )
+
+type ApiResource struct {
+	namespace             map[string]kubeapi.MappingNamespace
+	node                  map[string]kubeapi.MappingNode
+	pod                   map[string]kubeapi.MappingPod
+	container             map[string]kubeapi.MappingContainer
+	service               map[string]kubeapi.MappingService
+	persistentvolumeclaim map[string]kubeapi.MappingPvc
+	persistentvolume      map[string]kubeapi.MappingPv
+	deployment            map[string]kubeapi.MappingDeployment
+	statefulset           map[string]kubeapi.MappingStatefulSet
+	daemonset             map[string]kubeapi.MappingDaemonSet
+	replicaset            map[string]kubeapi.MappingReplicaSet
+	storageclass          map[string]kubeapi.MappingStorageClass
+	ingress               map[string]kubeapi.MappingIngress
+	ingresshost           map[string]kubeapi.MappingIngressHost
+}
+
+type ApiEvent struct {
+	event map[string]kubeapi.MappingEvent
+}
+
+var mapApiResource *sync.Map = &sync.Map{}
+var mapApiEvent *sync.Map = &sync.Map{}
+
+var ChannelResourceInsert chan map[string]interface{} = make(chan map[string]interface{})
+var biastime int64
 
 func InitNamespaceInfo(host string, clusterid int) {
 	mapNamespaceInfo := make(map[string]kubeapi.MappingNamespace)
-	rowsCnt := select_row_count_enabled(TB_KUBE_NS_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_NS_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapNamespaceInfo) == 0 {
+			var id int
 			var uid string
 			var name string
 			var starttime int64
 			var status string
 			var labels string
 			var enabled int
-			rows := select_row_enabled("nsuid, nsname, starttime, labels, status, enabled", TB_KUBE_NS_INFO, clusterid)
+			rows := selectRowEnabled("nsid, nsuid, nsname, starttime, labels, status, enabled", TB_KUBE_NS_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&uid, &name, &starttime, &labels, &status, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &uid, &name, &starttime, &labels, &status, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingNamespace
 					resource_data_temp.UID = uid
@@ -30,6 +65,12 @@ func InitNamespaceInfo(host string, clusterid int) {
 					resource_data_temp.StartTime = time.Unix(starttime, 0)
 					resource_data_temp.Labels = labels
 					resource_data_temp.Status = status
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapNamespaceInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_NS_INFO, "nsid", id)
+					}
+
 					mapNamespaceInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -45,9 +86,10 @@ func InitNamespaceInfo(host string, clusterid int) {
 
 func InitNodeInfo(host string, clusterid int) {
 	mapNodeInfo := make(map[string]kubeapi.MappingNode)
-	rowsCnt := select_row_count_enabled(TB_KUBE_NODE_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_NODE_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapNodeInfo) == 0 {
+			var id int
 			var name string
 			var uid string
 			var nodetype string
@@ -68,11 +110,13 @@ func InitNodeInfo(host string, clusterid int) {
 			var ip string
 			var status int
 
-			rows := select_row_enabled("nodename, nodeuid, nodetype, enabled, starttime, labels, kernelversion, osimage, osname, containerruntimever, kubeletver, kubeproxyver, cpuarch, cpucount, ephemeralstorage, memorysize, pods, ip, status", TB_KUBE_NODE_INFO, clusterid)
+			rows := selectRowEnabled("nodeid, nodename, nodeuid, nodetype, enabled, starttime, labels, kernelversion, osimage, osname, containerruntimever, kubeletver, kubeproxyver, cpuarch, cpucount, ephemeralstorage, memorysize, pods, ip, status", TB_KUBE_NODE_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&name, &uid, &nodetype, &enabled, &starttime, &labels, &kernelversion, &osimage, &osname, &containerruntimever, &kubeletver,
+				err := rows.Scan(&id, &name, &uid, &nodetype, &enabled, &starttime, &labels, &kernelversion, &osimage, &osname, &containerruntimever, &kubeletver,
 					&kubeproxyver, &cpuarch, &cpucount, &ephemeralstorage, &memorysize, &pods, &ip, &status)
-				errorCheck(err)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingNode
 					resource_data_temp.UID = uid
@@ -94,6 +138,12 @@ func InitNodeInfo(host string, clusterid int) {
 					resource_data_temp.Pods = pods
 					resource_data_temp.IP = ip
 					resource_data_temp.Status = status
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapNodeInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_NODE_INFO, "nodeid", id)
+					}
+
 					mapNodeInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -109,9 +159,10 @@ func InitNodeInfo(host string, clusterid int) {
 
 func InitPodInfo(host string, clusterid int) {
 	mapPodInfo := make(map[string]kubeapi.MappingPod)
-	rowsCnt := select_row_count_enabled(TB_KUBE_POD_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_POD_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapPodInfo) == 0 {
+			var id int
 			var podname string
 			var uid string
 			var nodeuid string
@@ -133,10 +184,12 @@ func InitPodInfo(host string, clusterid int) {
 			var refuid string
 			var enabled int
 
-			rows := select_row_enabled("podname, uid, nodeuid, nsuid, annotationuid, starttime, labels, selector, restartpolicy, serviceaccount, status, hostip, podip, restartcount, restarttime, podcondition, staticpod, refkind, refuid, enabled", TB_KUBE_POD_INFO, clusterid)
+			rows := selectRowEnabled("podid, podname, uid, nodeuid, nsuid, annotationuid, starttime, labels, selector, restartpolicy, serviceaccount, status, hostip, podip, restartcount, restarttime, podcondition, staticpod, refkind, refuid, enabled", TB_KUBE_POD_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&podname, &uid, &nodeuid, &nsuid, &annotationuid, &starttime, &labels, &selector, &restartpolicy, &serviceaccount, &status, &hostip, &podip, &restartcount, &restarttime, &podcondition, &staticpod, &refkind, &refuid, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &podname, &uid, &nodeuid, &nsuid, &annotationuid, &starttime, &labels, &selector, &restartpolicy, &serviceaccount, &status, &hostip, &podip, &restartcount, &restarttime, &podcondition, &staticpod, &refkind, &refuid, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingPod
 					resource_data_temp.UID = uid
@@ -161,6 +214,12 @@ func InitPodInfo(host string, clusterid int) {
 					resource_data_temp.StaticPod = staticpod
 					resource_data_temp.ReferenceKind = refkind
 					resource_data_temp.ReferenceUID = refuid
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapPodInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_POD_INFO, "podid", id)
+					}
+
 					mapPodInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -176,9 +235,10 @@ func InitPodInfo(host string, clusterid int) {
 
 func InitContainerInfo(host string, clusterid int) {
 	mapContainerInfo := make(map[string]kubeapi.MappingContainer)
-	rowsCnt := select_row_count_enabled(TB_KUBE_CONTAINER_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_CONTAINER_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapContainerInfo) == 0 {
+			var id int
 			var poduid string
 			var containername string
 			var image string
@@ -196,10 +256,12 @@ func InitContainerInfo(host string, clusterid int) {
 			var state string
 			var enabled int
 
-			rows := select_row_enabled("poduid, containername, image, ports, env, limitcpu, limitmemory, limitstorage, limitephemeral, reqcpu, reqmemory, reqstorage, reqephemeral, volumemounts, state, enabled", TB_KUBE_CONTAINER_INFO, clusterid)
+			rows := selectRowEnabled("containerid, poduid, containername, image, ports, env, limitcpu, limitmemory, limitstorage, limitephemeral, reqcpu, reqmemory, reqstorage, reqephemeral, volumemounts, state, enabled", TB_KUBE_CONTAINER_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&poduid, &containername, &image, &ports, &env, &limitcpu, &limitmemory, &limitstorage, &limitephemeral, &reqcpu, &reqmemory, &reqstorage, &reqephemeral, &volumemount, &state, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &poduid, &containername, &image, &ports, &env, &limitcpu, &limitmemory, &limitstorage, &limitephemeral, &reqcpu, &reqmemory, &reqstorage, &reqephemeral, &volumemount, &state, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingContainer
 					resource_data_temp.UID = poduid
@@ -220,6 +282,12 @@ func InitContainerInfo(host string, clusterid int) {
 					resource_data_temp.State = state
 
 					container_key := poduid + ":" + containername
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapContainerInfo[container_key]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "containerid", id)
+					}
+
 					mapContainerInfo[container_key] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -235,9 +303,10 @@ func InitContainerInfo(host string, clusterid int) {
 
 func InitServiceInfo(host string, clusterid int) {
 	mapServiceInfo := make(map[string]kubeapi.MappingService)
-	rowsCnt := select_row_count_enabled(TB_KUBE_SVC_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_SVC_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapServiceInfo) == 0 {
+			var id int
 			var nsuid string
 			var svcname string
 			var uid string
@@ -248,14 +317,16 @@ func InitServiceInfo(host string, clusterid int) {
 			var clusterip string
 			var ports string
 			var enabled int
-			rows := select_row_enabled("nsuid, svcname, uid, starttime, labels, selector, servicetype, clusterip, ports, enabled", TB_KUBE_SVC_INFO, clusterid)
+			rows := selectRowEnabled("svcid, nsuid, svcname, uid, starttime, labels, selector, servicetype, clusterip, ports, enabled", TB_KUBE_SVC_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &svcname, &uid, &starttime, &labels, &selector, &servicetype, &clusterip, &ports, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &svcname, &uid, &starttime, &labels, &selector, &servicetype, &clusterip, &ports, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingService
 
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -276,6 +347,12 @@ func InitServiceInfo(host string, clusterid int) {
 					resource_data_temp.ServiceType = servicetype
 					resource_data_temp.ClusterIP = clusterip
 					resource_data_temp.Ports = ports
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapServiceInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "svcid", id)
+					}
+
 					mapServiceInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -291,9 +368,10 @@ func InitServiceInfo(host string, clusterid int) {
 
 func InitPersistentVolumeClaimInfo(host string, clusterid int) {
 	mapPvcInfo := make(map[string]kubeapi.MappingPvc)
-	rowsCnt := select_row_count_enabled(TB_KUBE_PVC_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_PVC_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapPvcInfo) == 0 {
+			var id int
 			var nsuid string
 			var pvcname string
 			var uid string
@@ -303,13 +381,15 @@ func InitPersistentVolumeClaimInfo(host string, clusterid int) {
 			var accessmodes string
 			var status string
 			var enabled int
-			rows := select_row_enabled("nsuid, pvcname, uid, starttime, labels, selector, accessmodes, status, enabled", TB_KUBE_PVC_INFO, clusterid)
+			rows := selectRowEnabled("pvcid, nsuid, pvcname, uid, starttime, labels, selector, accessmodes, status, enabled", TB_KUBE_PVC_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &pvcname, &uid, &starttime, &labels, &selector, &accessmodes, &status, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &pvcname, &uid, &starttime, &labels, &selector, &accessmodes, &status, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingPvc
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -329,6 +409,12 @@ func InitPersistentVolumeClaimInfo(host string, clusterid int) {
 					resource_data_temp.Selector = selector
 					resource_data_temp.AccessModes = accessmodes
 					resource_data_temp.Status = status
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapPvcInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "pvcid", id)
+					}
+
 					mapPvcInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -344,9 +430,10 @@ func InitPersistentVolumeClaimInfo(host string, clusterid int) {
 
 func InitPersistentVolumeInfo(host string, clusterid int) {
 	mapPvInfo := make(map[string]kubeapi.MappingPv)
-	rowsCnt := select_row_count_enabled(TB_KUBE_PV_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_PV_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapPvInfo) == 0 {
+			var id int
 			var pvname string
 			var pvuid string
 			var pvcuid string
@@ -356,10 +443,12 @@ func InitPersistentVolumeInfo(host string, clusterid int) {
 			var reclaimpolicy string
 			var status string
 			var enabled int
-			rows := select_row_enabled("pvname, pvuid, pvcuid, starttime, labels, accessmodes, reclaimpolicy, status, enabled", TB_KUBE_PV_INFO, clusterid)
+			rows := selectRowEnabled("pvid, pvname, pvuid, pvcuid, starttime, labels, accessmodes, reclaimpolicy, status, enabled", TB_KUBE_PV_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&pvname, &pvuid, &pvcuid, &starttime, &labels, &accessmodes, &reclaimpolicy, &status, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &pvname, &pvuid, &pvcuid, &starttime, &labels, &accessmodes, &reclaimpolicy, &status, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingPv
 					resource_data_temp.Name = pvname
@@ -372,6 +461,12 @@ func InitPersistentVolumeInfo(host string, clusterid int) {
 					resource_data_temp.AccessModes = accessmodes
 					resource_data_temp.ReclaimPolicy = reclaimpolicy
 					resource_data_temp.Status = status
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapPvInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "pvid", id)
+					}
+
 					mapPvInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -387,9 +482,10 @@ func InitPersistentVolumeInfo(host string, clusterid int) {
 
 func InitDeploymentInfo(host string, clusterid int) {
 	mapDeployInfo := make(map[string]kubeapi.MappingDeployment)
-	rowsCnt := select_row_count_enabled(TB_KUBE_DEPLOY_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_DEPLOY_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapDeployInfo) == 0 {
+			var id int
 			var nsuid string
 			var deployname string
 			var uid string
@@ -403,13 +499,15 @@ func InitDeploymentInfo(host string, clusterid int) {
 			var availablers int64
 			var observedgen int64
 			var enabled int
-			rows := select_row_enabled("nsuid, deployname, uid, starttime, labels, selector, serviceaccount, replicas, updatedrs, readyrs, availablers, observedgen, enabled", TB_KUBE_DEPLOY_INFO, clusterid)
+			rows := selectRowEnabled("deployid, nsuid, deployname, uid, starttime, labels, selector, serviceaccount, replicas, updatedrs, readyrs, availablers, observedgen, enabled", TB_KUBE_DEPLOY_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &deployname, &uid, &starttime, &labels, &selector, &serviceaccount, &replicas, &updatedrs, &readyrs, &availablers, &observedgen, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &deployname, &uid, &starttime, &labels, &selector, &serviceaccount, &replicas, &updatedrs, &readyrs, &availablers, &observedgen, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingDeployment
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -432,6 +530,12 @@ func InitDeploymentInfo(host string, clusterid int) {
 					resource_data_temp.ReadyReplicas = int32(readyrs)
 					resource_data_temp.AvailableReplicas = int32(availablers)
 					resource_data_temp.ObservedGeneneration = observedgen
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapDeployInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "deployid", id)
+					}
+
 					mapDeployInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -446,10 +550,11 @@ func InitDeploymentInfo(host string, clusterid int) {
 }
 
 func InitStatefulSetInfo(host string, clusterid int) {
-	mapStatefulInfo := make(map[string]kubeapi.MappingStatefulSet)
-	rowsCnt := select_row_count_enabled(TB_KUBE_STS_INFO, clusterid)
+	mapStatefulSetInfo := make(map[string]kubeapi.MappingStatefulSet)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_STS_INFO, clusterid)
 	if rowsCnt > 0 {
-		if len(mapStatefulInfo) == 0 {
+		if len(mapStatefulSetInfo) == 0 {
+			var id int
 			var nsuid string
 			var stsname string
 			var uid string
@@ -462,13 +567,15 @@ func InitStatefulSetInfo(host string, clusterid int) {
 			var readyrs int64
 			var availablers int64
 			var enabled int
-			rows := select_row_enabled("nsuid, stsname, uid, starttime, labels, selector, serviceaccount, replicas, updatedrs, readyrs, availablers, enabled", TB_KUBE_STS_INFO, clusterid)
+			rows := selectRowEnabled("stsid, nsuid, stsname, uid, starttime, labels, selector, serviceaccount, replicas, updatedrs, readyrs, availablers, enabled", TB_KUBE_STS_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &stsname, &uid, &starttime, &labels, &selector, &serviceaccount, &replicas, &updatedrs, &readyrs, &availablers, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &stsname, &uid, &starttime, &labels, &selector, &serviceaccount, &replicas, &updatedrs, &readyrs, &availablers, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingStatefulSet
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -490,7 +597,13 @@ func InitStatefulSetInfo(host string, clusterid int) {
 					resource_data_temp.UpdatedReplicas = int32(updatedrs)
 					resource_data_temp.ReadyReplicas = int32(readyrs)
 					resource_data_temp.AvailableReplicas = int32(availablers)
-					mapStatefulInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapStatefulSetInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "stsid", id)
+					}
+
+					mapStatefulSetInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
 		}
@@ -498,16 +611,17 @@ func InitStatefulSetInfo(host string, clusterid int) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		apiresource.statefulset = mapStatefulInfo
+		apiresource.statefulset = mapStatefulSetInfo
 		mapApiResource.Store(host, apiresource)
 	}
 }
 
 func InitDaemonSetInfo(host string, clusterid int) {
 	mapDaemonSetInfo := make(map[string]kubeapi.MappingDaemonSet)
-	rowsCnt := select_row_count_enabled(TB_KUBE_DS_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_DS_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapDaemonSetInfo) == 0 {
+			var id int
 			var nsuid string
 			var stsname string
 			var uid string
@@ -521,13 +635,15 @@ func InitDaemonSetInfo(host string, clusterid int) {
 			var updated int64
 			var available int64
 			var enabled int
-			rows := select_row_enabled("nsuid, dsname, uid, starttime, labels, selector, serviceaccount, current, desired, ready, updated, available, enabled", TB_KUBE_DS_INFO, clusterid)
+			rows := selectRowEnabled("dsid, nsuid, dsname, uid, starttime, labels, selector, serviceaccount, current, desired, ready, updated, available, enabled", TB_KUBE_DS_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &stsname, &uid, &starttime, &labels, &selector, &serviceaccount, &current, &desired, &ready, &updated, &available, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &stsname, &uid, &starttime, &labels, &selector, &serviceaccount, &current, &desired, &ready, &updated, &available, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingDaemonSet
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -551,6 +667,12 @@ func InitDaemonSetInfo(host string, clusterid int) {
 					resource_data_temp.NumberReady = int32(ready)
 					resource_data_temp.UpdatedNumberScheduled = int32(updated)
 					resource_data_temp.NumberAvailable = int32(available)
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapDaemonSetInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "dsid", id)
+					}
+
 					mapDaemonSetInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -566,9 +688,10 @@ func InitDaemonSetInfo(host string, clusterid int) {
 
 func InitReplicaSetInfo(host string, clusterid int) {
 	mapReplicaSetInfo := make(map[string]kubeapi.MappingReplicaSet)
-	rowsCnt := select_row_count_enabled(TB_KUBE_RS_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_RS_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapReplicaSetInfo) == 0 {
+			var id int
 			var nsuid string
 			var rsname string
 			var uid string
@@ -583,13 +706,15 @@ func InitReplicaSetInfo(host string, clusterid int) {
 			var refkind string
 			var refuid string
 			var enabled int
-			rows := select_row_enabled("nsuid, rsname, uid, starttime, labels, selector, replicas, fullylabeledrs, readyrs, availablers, observedgen, refkind, refuid, enabled", TB_KUBE_RS_INFO, clusterid)
+			rows := selectRowEnabled("rsid, nsuid, rsname, uid, starttime, labels, selector, replicas, fullylabeledrs, readyrs, availablers, observedgen, refkind, refuid, enabled", TB_KUBE_RS_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &rsname, &uid, &starttime, &labels, &selector, &replicas, &fullylabeledrs, &readyrs, &availablers, &observedgen, &refkind, &refuid, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &rsname, &uid, &starttime, &labels, &selector, &replicas, &fullylabeledrs, &readyrs, &availablers, &observedgen, &refkind, &refuid, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingReplicaSet
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -614,6 +739,12 @@ func InitReplicaSetInfo(host string, clusterid int) {
 					resource_data_temp.ObservedGeneneration = observedgen
 					resource_data_temp.ReferenceKind = refkind
 					resource_data_temp.ReferenceUID = refuid
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapReplicaSetInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "rsid", id)
+					}
+
 					mapReplicaSetInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
@@ -628,10 +759,11 @@ func InitReplicaSetInfo(host string, clusterid int) {
 }
 
 func InitIngressInfo(host string, clusterid int) {
-	mapIngInfo := make(map[string]kubeapi.MappingIngress)
-	rowsCnt := select_row_count_enabled(TB_KUBE_ING_INFO, clusterid)
+	mapIngressInfo := make(map[string]kubeapi.MappingIngress)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_ING_INFO, clusterid)
 	if rowsCnt > 0 {
-		if len(mapIngInfo) == 0 {
+		if len(mapIngressInfo) == 0 {
+			var id int
 			var nsuid string
 			var ingname string
 			var uid string
@@ -639,10 +771,12 @@ func InitIngressInfo(host string, clusterid int) {
 			var labels string
 			var classname string
 			var enabled int
-			rows := select_row_enabled("nsuid, ingname, uid, starttime, labels, classname, enabled", TB_KUBE_ING_INFO, clusterid)
+			rows := selectRowEnabled("ingid, nsuid, ingname, uid, starttime, labels, classname, enabled", TB_KUBE_ING_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&nsuid, &ingname, &uid, &starttime, &labels, &classname, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &nsuid, &ingname, &uid, &starttime, &labels, &classname, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingIngress
 					resource_data_temp.Name = ingname
@@ -652,7 +786,13 @@ func InitIngressInfo(host string, clusterid int) {
 					resource_data_temp.Host = host
 					resource_data_temp.Labels = labels
 					resource_data_temp.IngressClassName = classname
-					mapIngInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapIngressInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "ingid", id)
+					}
+
+					mapIngressInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
 		}
@@ -660,16 +800,17 @@ func InitIngressInfo(host string, clusterid int) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		apiresource.ingress = mapIngInfo
+		apiresource.ingress = mapIngressInfo
 		mapApiResource.Store(host, apiresource)
 	}
 }
 
 func InitIngressHostInfo(host string, clusterid int) {
-	mapIngHostInfo := make(map[string]kubeapi.MappingIngressHost)
-	rowsCnt := select_row_count_enabled(TB_KUBE_INGHOST_INFO, clusterid)
+	mapIngressHostInfo := make(map[string]kubeapi.MappingIngressHost)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_INGHOST_INFO, clusterid)
 	if rowsCnt > 0 {
-		if len(mapIngHostInfo) == 0 {
+		if len(mapIngressHostInfo) == 0 {
+			var id int
 			var inguid string
 			var backendtype string
 			var backendname string
@@ -680,10 +821,12 @@ func InitIngressHostInfo(host string, clusterid int) {
 			var rscapigroup string
 			var rsckind string
 			var enabled int
-			rows := select_row_enabled("inguid, backendtype, backendname, hostname, pathtype, path, serviceport, rscapigroup, rsckind, enabled", TB_KUBE_INGHOST_INFO, clusterid)
+			rows := selectRowEnabled("inghostid, inguid, backendtype, backendname, hostname, pathtype, path, serviceport, rscapigroup, rsckind, enabled", TB_KUBE_INGHOST_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&inguid, &backendtype, &backendname, &hostname, &pathtype, &path, &serviceport, &rscapigroup, &rsckind, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &inguid, &backendtype, &backendname, &hostname, &pathtype, &path, &serviceport, &rscapigroup, &rsckind, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingIngressHost
 					resource_data_temp.UID = inguid
@@ -696,7 +839,13 @@ func InitIngressHostInfo(host string, clusterid int) {
 					resource_data_temp.ServicePort = serviceport
 					resource_data_temp.ResourceAPIGroup = rscapigroup
 					resource_data_temp.ResourceKind = rsckind
-					mapIngHostInfo[resource_data_temp.Hostname] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapIngressHostInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "inghostid", id)
+					}
+
+					mapIngressHostInfo[resource_data_temp.Hostname] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
 		}
@@ -704,16 +853,17 @@ func InitIngressHostInfo(host string, clusterid int) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		apiresource.ingresshost = mapIngHostInfo
+		apiresource.ingresshost = mapIngressHostInfo
 		mapApiResource.Store(host, apiresource)
 	}
 }
 
 func InitStorageClassInfo(host string, clusterid int) {
-	mapScInfo := make(map[string]kubeapi.MappingStorageClass)
-	rowsCnt := select_row_count_enabled(TB_KUBE_SC_INFO, clusterid)
+	mapStorageClassInfo := make(map[string]kubeapi.MappingStorageClass)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_SC_INFO, clusterid)
 	if rowsCnt > 0 {
-		if len(mapScInfo) == 0 {
+		if len(mapStorageClassInfo) == 0 {
+			var id int
 			var scname string
 			var uid string
 			var starttime int64
@@ -723,10 +873,12 @@ func InitStorageClassInfo(host string, clusterid int) {
 			var volumebindingmode string
 			var allowvolumeexp int
 			var enabled int
-			rows := select_row_enabled("scname, uid, starttime, labels, provisioner, reclaimpolicy, volumebindingmode, allowvolumeexp, enabled", TB_KUBE_SC_INFO, clusterid)
+			rows := selectRowEnabled("scid, scname, uid, starttime, labels, provisioner, reclaimpolicy, volumebindingmode, allowvolumeexp, enabled", TB_KUBE_SC_INFO, clusterid)
 			for rows.Next() {
-				err := rows.Scan(&scname, &uid, &starttime, &labels, &provisioner, &reclaimpolicy, &volumebindingmode, &allowvolumeexp, &enabled)
-				errorCheck(err)
+				err := rows.Scan(&id, &scname, &uid, &starttime, &labels, &provisioner, &reclaimpolicy, &volumebindingmode, &allowvolumeexp, &enabled)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingStorageClass
 					resource_data_temp.Name = scname
@@ -743,7 +895,13 @@ func InitStorageClassInfo(host string, clusterid int) {
 					} else {
 						resource_data_temp.AllowVolumeExpansion = false
 					}
-					mapScInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
+
+					// Already Exists Info, To remove duplication Info
+					if _, ok := mapStorageClassInfo[resource_data_temp.UID]; ok {
+						deleteDuplicateResourceInfo(TB_KUBE_CONTAINER_INFO, "scid", id)
+					}
+
+					mapStorageClassInfo[resource_data_temp.UID] = resource_data_temp //일단 DB에 있는 데이터를 가져와서 메모리에 저장...
 				}
 			}
 		}
@@ -751,13 +909,13 @@ func InitStorageClassInfo(host string, clusterid int) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		apiresource.storageclass = mapScInfo
+		apiresource.storageclass = mapStorageClassInfo
 		mapApiResource.Store(host, apiresource)
 	}
 }
 
 // ############################ Init Data Load
-func InitMapData() {
+func InitResourceDataMap() {
 	defer errorRecover()
 
 	for k, v := range common.ClusterID {
@@ -792,5 +950,30 @@ func InitMapData() {
 		InitIngressInfo(k, v)
 		InitIngressHostInfo(k, v)
 		InitStorageClassInfo(k, v)
+	}
+}
+
+func deleteDuplicateResourceInfo(tablename string, id_col string, id int) {
+	conn, err := common.DBConnectionPool.Acquire(context.Background())
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
+	}
+
+	defer conn.Release()
+
+	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
+
+	_, err = tx.Exec(context.Background(), fmt.Sprintf(DELETE_RESOURCE_ID, tablename, id_col, id))
+	if !errorCheck(err) {
+		return
+	}
+
+	err = tx.Commit(context.Background())
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
 	}
 }

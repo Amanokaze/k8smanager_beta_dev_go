@@ -23,6 +23,7 @@ var (
 	ClientInfoArr    []*ClientInfo
 )
 
+// ErrorRecover is a function to recover from panic
 func ErrorRecover() {
 	if r := recover(); r != nil {
 		err := fmt.Errorf("Kubernetes API Error - %v", r)
@@ -30,6 +31,7 @@ func ErrorRecover() {
 	}
 }
 
+// GetResourceData is a function to get resource kind, UID, name
 func GetRefData(refs []metav1.OwnerReference) map[string]string {
 	if refs != nil {
 		return map[string]string{

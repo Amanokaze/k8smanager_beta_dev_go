@@ -1,10 +1,11 @@
 module onTuneKubeManager
 
-go 1.19
+go 1.21
 
 require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/jackc/pgx/v5 v5.3.1
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/common v0.39.0
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0

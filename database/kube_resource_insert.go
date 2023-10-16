@@ -7,56 +7,13 @@ import (
 	"onTuneKubeManager/kubeapi"
 	"reflect"
 	"strconv"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
+	"github.com/pkg/errors"
 )
-
-type ApiResource struct {
-	namespace             map[string]kubeapi.MappingNamespace
-	node                  map[string]kubeapi.MappingNode
-	pod                   map[string]kubeapi.MappingPod
-	container             map[string]kubeapi.MappingContainer
-	service               map[string]kubeapi.MappingService
-	persistentvolumeclaim map[string]kubeapi.MappingPvc
-	persistentvolume      map[string]kubeapi.MappingPv
-	deployment            map[string]kubeapi.MappingDeployment
-	statefulset           map[string]kubeapi.MappingStatefulSet
-	daemonset             map[string]kubeapi.MappingDaemonSet
-	replicaset            map[string]kubeapi.MappingReplicaSet
-	storageclass          map[string]kubeapi.MappingStorageClass
-	ingress               map[string]kubeapi.MappingIngress
-	ingresshost           map[string]kubeapi.MappingIngressHost
-}
-
-type ApiEvent struct {
-	event map[string]kubeapi.MappingEvent
-}
-
-var mapApiResource *sync.Map = &sync.Map{}
-var mapApiEvent *sync.Map = &sync.Map{}
-
-// var mapNamespaceInfo map[string]kubeapi.MappingNamespace = make(map[string]kubeapi.MappingNamespace)
-
-// var mapNodeInfo map[string]kubeapi.MappingNode = make(map[string]kubeapi.MappingNode)
-// var mapPodInfo map[string]kubeapi.MappingPod = make(map[string]kubeapi.MappingPod)
-// var mapContainerInfo map[string]kubeapi.MappingContainer = make(map[string]kubeapi.MappingContainer)
-
-// var mapServiceInfo map[string]kubeapi.MappingService = make(map[string]kubeapi.MappingService)
-// var mapPvcInfo map[string]kubeapi.MappingPvc = make(map[string]kubeapi.MappingPvc)
-// var mapPvInfo map[string]kubeapi.MappingPv = make(map[string]kubeapi.MappingPv)
-// var mapDeployInfo map[string]kubeapi.MappingDeployment = make(map[string]kubeapi.MappingDeployment)
-// var mapStatefulInfo map[string]kubeapi.MappingStatefulSet = make(map[string]kubeapi.MappingStatefulSet)
-// var mapDaemonSetInfo map[string]kubeapi.MappingDaemonSet = make(map[string]kubeapi.MappingDaemonSet)
-// var mapReplicaSetInfo map[string]kubeapi.MappingReplicaSet = make(map[string]kubeapi.MappingReplicaSet)
-// var mapScInfo map[string]kubeapi.MappingStorageClass = make(map[string]kubeapi.MappingStorageClass)
-// var mapIngInfo map[string]kubeapi.MappingIngress = make(map[string]kubeapi.MappingIngress)
-// var mapIngHostInfo map[string]kubeapi.MappingIngressHost = make(map[string]kubeapi.MappingIngressHost)
-
-var ChannelResourceInsert chan map[string]interface{} = make(chan map[string]interface{})
-var biastime int64
 
 func UpdateClusterStatusinfo() {
 	for {
@@ -64,8 +21,9 @@ func UpdateClusterStatusinfo() {
 
 		for k, v := range status_map {
 			conn, err := common.DBConnectionPool.Acquire(context.Background())
-			if err != nil {
-				errorCheck(err)
+			if conn == nil || err != nil {
+				errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+				return
 			}
 
 			var flag string
@@ -77,15 +35,36 @@ func UpdateClusterStatusinfo() {
 			}
 			common.ClusterStatusMap.Store(k, v)
 
-			ontunetime, _ := GetOntuneTime()
-			result, err := conn.Query(context.Background(), "update "+TB_KUBE_CLUSTER_INFO+" set status = "+flag+", updatetime = "+strconv.FormatInt(ontunetime, 10)+" where clusterid = "+strconv.Itoa(common.ClusterID[k])+" RETURNING clusterid")
-			errorCheck(err)
+			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result.Close()
+			ontunetime, _ := GetOntuneTime()
+			if ontunetime == 0 {
+				return
+			}
+
+			clusterid := common.ClusterID[k]
+			_, err = tx.Exec(context.Background(), fmt.Sprintf(UPDATE_STATUS, TB_KUBE_CLUSTER_INFO, "status", flag, ontunetime, clusterid))
+			if !errorCheck(err) {
+				return
+			}
+
+			err = tx.Commit(context.Background())
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 
 			conn.Release()
 
-			update_tableinfo(TB_KUBE_CLUSTER_INFO, ontunetime)
+			if flag == "0" {
+				updateResourceStatusByCluster(ontunetime, k)
+				updateTableinfo(TB_KUBE_NODE_INFO, ontunetime)
+				updateTableinfo(TB_KUBE_POD_INFO, ontunetime)
+			}
+
+			updateTableinfo(TB_KUBE_CLUSTER_INFO, ontunetime)
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
@@ -102,6 +81,9 @@ func ResourceSender() {
 			} else if key == "namespace_update" {
 				ns_data := data.(map[string]kubeapi.MappingNamespace)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range ns_data {
@@ -121,7 +103,7 @@ func ResourceSender() {
 						updateNamespaceinfo(ns_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_NS_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_NS_INFO, ontunetime)
 					}
 				}
 			} else if key == "namespace_insert" {
@@ -130,6 +112,9 @@ func ResourceSender() {
 			} else if key == "node_update" {
 				node_data := data.(map[string]kubeapi.MappingNode)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range node_data {
@@ -147,18 +132,21 @@ func ResourceSender() {
 						updateNodeinfo(node_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_NODE_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_NODE_INFO, ontunetime)
 					}
 				}
 			} else if key == "node_insert" {
 				node_data := data.(Nodeinfo)
 				insertNodeinfo(node_data)
 			} else if key == "pods_update" {
-				node_data := data.(map[string]kubeapi.MappingPod)
+				pod_data := data.(map[string]kubeapi.MappingPod)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
-				for _, v := range node_data {
+				for _, v := range pod_data {
 					host = v.Host
 					break
 				}
@@ -167,21 +155,24 @@ func ResourceSender() {
 					apiresource := ar.(*ApiResource)
 					mapPodInfo := apiresource.pod
 
-					UpdateList := pod_updateCheck(node_data, mapPodInfo)
-					updateCnt := updateEnablePodinfo(ontunetime, node_data)
+					UpdateList := pod_updateCheck(pod_data, mapPodInfo)
+					updateCnt := updateEnablePodinfo(ontunetime, pod_data)
 					if len(UpdateList) > 0 {
-						updatePodinfo(node_data, UpdateList, ontunetime)
+						updatePodinfo(pod_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_POD_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_POD_INFO, ontunetime)
 					}
 				}
 			} else if key == "pods_insert" {
-				pods_data := data.(Podinfo)
-				insertPodinfo(pods_data)
+				pod_data := data.(Podinfo)
+				insertPodinfo(pod_data)
 			} else if key == "container_update" {
 				container_data := data.(map[string]kubeapi.MappingContainer)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range container_data {
@@ -199,7 +190,7 @@ func ResourceSender() {
 						updateContainerinfo(container_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_CONTAINER_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_CONTAINER_INFO, ontunetime)
 					}
 				}
 			} else if key == "container_insert" {
@@ -208,6 +199,9 @@ func ResourceSender() {
 			} else if key == "service_update" {
 				service_data := data.(map[string]kubeapi.MappingService)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range service_data {
@@ -225,7 +219,7 @@ func ResourceSender() {
 						updateServiceinfo(service_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_SVC_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_SVC_INFO, ontunetime)
 					}
 				}
 			} else if key == "service_insert" {
@@ -234,6 +228,9 @@ func ResourceSender() {
 			} else if key == "pvc_update" {
 				pvc_data := data.(map[string]kubeapi.MappingPvc)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range pvc_data {
@@ -251,7 +248,7 @@ func ResourceSender() {
 						updatePvcinfo(pvc_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_PVC_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_PVC_INFO, ontunetime)
 					}
 				}
 			} else if key == "pvc_insert" {
@@ -260,6 +257,9 @@ func ResourceSender() {
 			} else if key == "pv_update" {
 				pv_data := data.(map[string]kubeapi.MappingPv)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range pv_data {
@@ -277,7 +277,7 @@ func ResourceSender() {
 						updatePvinfo(pv_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_PV_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_PV_INFO, ontunetime)
 					}
 				}
 			} else if key == "pv_insert" {
@@ -286,6 +286,9 @@ func ResourceSender() {
 			} else if key == "deploy_update" {
 				deploy_data := data.(map[string]kubeapi.MappingDeployment)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range deploy_data {
@@ -303,7 +306,7 @@ func ResourceSender() {
 						updateDeployinfo(deploy_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_DEPLOY_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_DEPLOY_INFO, ontunetime)
 					}
 				}
 			} else if key == "deploy_insert" {
@@ -312,6 +315,9 @@ func ResourceSender() {
 			} else if key == "stateful_update" {
 				stateful_data := data.(map[string]kubeapi.MappingStatefulSet)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range stateful_data {
@@ -321,15 +327,15 @@ func ResourceSender() {
 
 				if ar, ok := mapApiResource.Load(host); ok {
 					apiresource := ar.(*ApiResource)
-					mapStatefulInfo := apiresource.statefulset
+					mapStatefulSetInfo := apiresource.statefulset
 
-					UpdateList := stateful_updateCheck(stateful_data, mapStatefulInfo)
+					UpdateList := stateful_updateCheck(stateful_data, mapStatefulSetInfo)
 					updateCnt := updateEnableStatefulinfo(ontunetime, stateful_data)
 					if len(UpdateList) > 0 {
 						updateStatefulinfo(stateful_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_STS_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_STS_INFO, ontunetime)
 					}
 				}
 			} else if key == "stateful_insert" {
@@ -338,6 +344,9 @@ func ResourceSender() {
 			} else if key == "daemonset_update" {
 				daemonset_data := data.(map[string]kubeapi.MappingDaemonSet)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range daemonset_data {
@@ -355,7 +364,7 @@ func ResourceSender() {
 						updateDaemonsetinfo(daemonset_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_DS_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_DS_INFO, ontunetime)
 					}
 				}
 			} else if key == "daemonset_insert" {
@@ -364,6 +373,9 @@ func ResourceSender() {
 			} else if key == "replicaset_update" {
 				replicaset_data := data.(map[string]kubeapi.MappingReplicaSet)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range replicaset_data {
@@ -381,7 +393,7 @@ func ResourceSender() {
 						updateReplicasetinfo(replicaset_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_RS_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_RS_INFO, ontunetime)
 					}
 				}
 			} else if key == "replicaset_insert" {
@@ -390,6 +402,9 @@ func ResourceSender() {
 			} else if key == "sc_update" {
 				sc_data := data.(map[string]kubeapi.MappingStorageClass)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range sc_data {
@@ -399,15 +414,15 @@ func ResourceSender() {
 
 				if ar, ok := mapApiResource.Load(host); ok {
 					apiresource := ar.(*ApiResource)
-					mapScInfo := apiresource.storageclass
+					mapStorageClassInfo := apiresource.storageclass
 
-					UpdateList := sc_updateCheck(sc_data, mapScInfo)
+					UpdateList := sc_updateCheck(sc_data, mapStorageClassInfo)
 					updateCnt := updateEnableScinfo(ontunetime, sc_data)
 					if len(UpdateList) > 0 {
 						updateScinfo(sc_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_SC_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_SC_INFO, ontunetime)
 					}
 				}
 			} else if key == "sc_insert" {
@@ -416,6 +431,9 @@ func ResourceSender() {
 			} else if key == "ing_update" {
 				ing_data := data.(map[string]kubeapi.MappingIngress)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range ing_data {
@@ -425,15 +443,15 @@ func ResourceSender() {
 
 				if ar, ok := mapApiResource.Load(host); ok {
 					apiresource := ar.(*ApiResource)
-					mapIngInfo := apiresource.ingress
+					mapIngressInfo := apiresource.ingress
 
-					UpdateList := ing_updateCheck(ing_data, mapIngInfo)
+					UpdateList := ing_updateCheck(ing_data, mapIngressInfo)
 					updateCnt := updateEnableInginfo(ontunetime, ing_data)
 					if len(UpdateList) > 0 {
 						updateInginfo(ing_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_ING_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_ING_INFO, ontunetime)
 					}
 				}
 			} else if key == "ing_insert" {
@@ -442,6 +460,9 @@ func ResourceSender() {
 			} else if key == "inghost_update" {
 				inghost_data := data.(map[string]kubeapi.MappingIngressHost)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
 
 				var host string
 				for _, v := range inghost_data {
@@ -451,15 +472,15 @@ func ResourceSender() {
 
 				if ar, ok := mapApiResource.Load(host); ok {
 					apiresource := ar.(*ApiResource)
-					mapIngHostInfo := apiresource.ingresshost
+					mapIngressHostInfo := apiresource.ingresshost
 
-					UpdateList := inghost_updateCheck(inghost_data, mapIngHostInfo)
+					UpdateList := inghost_updateCheck(inghost_data, mapIngressHostInfo)
 					updateCnt := updateEnableInghostinfo(ontunetime, inghost_data)
 					if len(UpdateList) > 0 {
 						updateInghostinfo(inghost_data, UpdateList, ontunetime)
 					}
 					if updateCnt > 0 || len(UpdateList) > 0 {
-						update_tableinfo(TB_KUBE_INGHOST_INFO, ontunetime)
+						updateTableinfo(TB_KUBE_INGHOST_INFO, ontunetime)
 					}
 				}
 			} else if key == "inghost_insert" {
@@ -473,46 +494,128 @@ func ResourceSender() {
 
 func delResourceinfo() {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), "delete from kuberesourceinfo")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 }
 
 func insertResourceinfo(Arr_rcs Resourceinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(Arr_rcs.ArrClusterid); i++ {
 		Arr_rcs.ArrCreateTime[i] = ontunetime
 		Arr_rcs.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_RESOURCE_INFO, pq.Array(Arr_rcs.ArrClusterid), pq.StringArray(Arr_rcs.ArrResourcename), pq.StringArray(Arr_rcs.ArrApiclass), pq.StringArray(Arr_rcs.ArrVersion), pq.StringArray(Arr_rcs.ArrEndpoint), pq.Array(Arr_rcs.ArrEnabled), pq.Int64Array(Arr_rcs.ArrCreateTime), pq.Int64Array(Arr_rcs.ArrUpdateTime))
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(INSERT_RESOURCE_INFO, ontunetime)
+	updateTableinfo(INSERT_RESOURCE_INFO, ontunetime)
+}
+
+func updateResourceStatusByCluster(ontunetime int64, hostip string) {
+	clusterid := common.ClusterID[hostip]
+
+	conn, err := common.DBConnectionPool.Acquire(context.Background())
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
+	}
+
+	defer conn.Release()
+
+	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
+
+	_, err = tx.Exec(context.Background(), fmt.Sprintf(UPDATE_STATUS, TB_KUBE_NODE_INFO, "status", "0", ontunetime, clusterid))
+	if !errorCheck(err) {
+		return
+	}
+
+	_, err = tx.Exec(context.Background(), fmt.Sprintf(UPDATE_STATUS, TB_KUBE_POD_INFO, "status", "Cluster Disconnected", ontunetime, clusterid))
+	if !errorCheck(err) {
+		return
+	}
+
+	_, err = tx.Exec(context.Background(), fmt.Sprintf(UPDATE_STATUS, TB_KUBE_CONTAINER_INFO, "state", "cluster disconnected", ontunetime, clusterid))
+	if !errorCheck(err) {
+		return
+	}
+
+	err = tx.Commit(context.Background())
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
+
+	if ar, ok := mapApiResource.Load(hostip); ok {
+		apiresource := ar.(*ApiResource)
+		mapNodeInfo := apiresource.node
+		for nk, nv := range mapNodeInfo {
+			nv.Status = 0
+			mapNodeInfo[nk] = nv
+		}
+
+		mapPodInfo := apiresource.pod
+		for pk, pv := range mapPodInfo {
+			pv.Status = "Cluster Disconnected"
+			mapPodInfo[pk] = pv
+		}
+
+		mapContainerInfo := apiresource.container
+		for ck, cv := range mapContainerInfo {
+			cv.State = "cluster disconnected"
+			mapContainerInfo[ck] = cv
+		}
+
+		apiresource.node = mapNodeInfo
+		apiresource.pod = mapPodInfo
+		apiresource.container = mapContainerInfo
+
+		mapApiResource.Store(hostip, apiresource)
+	}
 }
 
 func namespace_updateCheck(new_info map[string]kubeapi.MappingNamespace, old_info map[string]kubeapi.MappingNamespace) []string {
@@ -539,8 +642,9 @@ func namespace_updateCheck(new_info map[string]kubeapi.MappingNamespace, old_inf
 
 func updateEnableNamespaceinfo(ontunetime int64, update_info map[string]kubeapi.MappingNamespace) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -552,7 +656,9 @@ func updateEnableNamespaceinfo(ontunetime int64, update_info map[string]kubeapi.
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_NS_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where nsuid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING nsuid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -561,7 +667,9 @@ func updateEnableNamespaceinfo(ontunetime int64, update_info map[string]kubeapi.
 		mapNamespaceInfo := apiresource.namespace
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapNamespaceInfo, updateUid)
 			returnVal++
 		}
@@ -576,52 +684,74 @@ func updateEnableNamespaceinfo(ontunetime int64, update_info map[string]kubeapi.
 
 func insertNamespaceinfo(ArrResource Namespaceinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrClusterid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_NAMESPACE_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_NS_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - namespace insertion is completed: %s", strings.Join(ArrResource.ArrNsUid, ",")))
+
+	updateTableinfo(TB_KUBE_NS_INFO, ontunetime)
 }
 
 func updateNamespaceinfo(update_info map[string]kubeapi.MappingNamespace, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapNamespaceInfo := apiresource.namespace
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
 			result, err := tx.Exec(context.Background(), UPDATE_NAMESPACE_INFO, common.ClusterID[update_info[key].Host], update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Status, ontunetime, update_info[key].UID)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
 				_, insert_err := tx.Exec(context.Background(), INSERT_NAMESPACE_INFO, update_info[key].UID, common.ClusterID[update_info[key].Host], update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Status, 1, ontunetime, ontunetime)
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingNamespace
 			update_data.UID = update_info[key].UID
@@ -632,11 +762,15 @@ func updateNamespaceinfo(update_info map[string]kubeapi.MappingNamespace, update
 			mapNamespaceInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s namespace update is completed", hostname))
+
 		apiresource.namespace = mapNamespaceInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
@@ -664,8 +798,9 @@ func node_updateCheck(new_info map[string]kubeapi.MappingNode, old_info map[stri
 
 func updateEnableNodeinfo(ontunetime int64, update_info map[string]kubeapi.MappingNode) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -677,7 +812,9 @@ func updateEnableNodeinfo(ontunetime int64, update_info map[string]kubeapi.Mappi
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_NODE_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where nodeuid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING nodeuid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -686,7 +823,9 @@ func updateEnableNodeinfo(ontunetime int64, update_info map[string]kubeapi.Mappi
 		mapNodeInfo := apiresource.node
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapNodeInfo, updateUid)
 			returnVal++
 		}
@@ -701,25 +840,32 @@ func updateEnableNodeinfo(ontunetime int64, update_info map[string]kubeapi.Mappi
 
 func updateNodeinfo(update_info map[string]kubeapi.MappingNode, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapNodeInfo := apiresource.node
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
 			result, err := tx.Exec(context.Background(), UPDATE_NODE_INFO, common.ManagerID, common.ClusterID[update_info[key].Host], update_info[key].Name, update_info[key].NodeType, getStarttime(update_info[key].StartTime.Unix(), biastime),
 				update_info[key].Labels, update_info[key].KernelVersion, update_info[key].OSImage, update_info[key].OSName, update_info[key].ContainerRuntimeVersion, update_info[key].KubeletVersion,
 				update_info[key].KubeProxyVersion, update_info[key].CPUArch, update_info[key].CPUCount, update_info[key].EphemeralStorage, update_info[key].MemorySize,
 				update_info[key].Pods, update_info[key].IP, update_info[key].Status, ontunetime, update_info[key].UID)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
 				_, insert_err := tx.Exec(context.Background(), INSERT_NODE_INFO, common.ManagerID, common.ClusterID[update_info[key].Host], update_info[key].UID, update_info[key].Name, update_info[key].Name,
@@ -727,7 +873,9 @@ func updateNodeinfo(update_info map[string]kubeapi.MappingNode, update_list []st
 					update_info[key].KernelVersion, update_info[key].OSImage, update_info[key].OSName, update_info[key].ContainerRuntimeVersion, update_info[key].KubeletVersion,
 					update_info[key].KubeProxyVersion, update_info[key].CPUArch, update_info[key].CPUCount, update_info[key].EphemeralStorage, update_info[key].MemorySize,
 					update_info[key].Pods, update_info[key].IP, update_info[key].Status, ontunetime, ontunetime)
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingNode
 			update_data.UID = update_info[key].UID
@@ -752,38 +900,55 @@ func updateNodeinfo(update_info map[string]kubeapi.MappingNode, update_list []st
 			mapNodeInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s node update is completed", hostname))
+
 		apiresource.node = mapNodeInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertNodeinfo(ArrResource Nodeinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrManagerid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_NODE_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_NODE_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - node insertion is completed: %s", strings.Join(ArrResource.ArrNodeUid, ",")))
+
+	updateTableinfo(TB_KUBE_NODE_INFO, ontunetime)
 }
 
 func pod_updateCheck(new_info map[string]kubeapi.MappingPod, old_info map[string]kubeapi.MappingPod) []string {
@@ -810,8 +975,9 @@ func pod_updateCheck(new_info map[string]kubeapi.MappingPod, old_info map[string
 
 func updateEnablePodinfo(ontunetime int64, update_info map[string]kubeapi.MappingPod) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -823,7 +989,9 @@ func updateEnablePodinfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_POD_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where enabled = 1 and uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -832,7 +1000,9 @@ func updateEnablePodinfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 		mapPodInfo := apiresource.pod
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapPodInfo, updateUid)
 			returnVal++
 		}
@@ -847,36 +1017,45 @@ func updateEnablePodinfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 
 func updatePodinfo(update_info map[string]kubeapi.MappingPod, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapPodInfo := apiresource.pod
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_POD_INFO, getUID("node", update_info[key].Host, update_info[key].NodeName), getUID("namespace", update_info[key].Host, update_info[key].NamespaceName),
+			result, err := tx.Exec(context.Background(), UPDATE_POD_INFO, getUID(METRIC_VAR_NODE, update_info[key].Host, update_info[key].NodeName), getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName),
 				update_info[key].AnnotationUID, update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
 				update_info[key].RestartPolicy, update_info[key].ServiceAccount, update_info[key].Status, update_info[key].HostIP, update_info[key].PodIP,
 				int64(update_info[key].RestartCount), getStarttime(update_info[key].RestartTime.Unix(), biastime), update_info[key].Condition, update_info[key].StaticPod,
 				update_info[key].ReferenceKind, update_info[key].ReferenceUID, getUID("persistentvolumeclaim", update_info[key].NamespaceName, update_info[key].PersistentVolumeClaim),
 				ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_POD_INFO, update_info[key].UID, getUID("node", update_info[key].Host, update_info[key].NodeName), getUID("namespace", update_info[key].Host, update_info[key].NamespaceName),
+				_, insert_err := tx.Exec(context.Background(), INSERT_POD_INFO, update_info[key].UID, getUID(METRIC_VAR_NODE, update_info[key].Host, update_info[key].NodeName), getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName),
 					update_info[key].AnnotationUID, update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
 					update_info[key].RestartPolicy, update_info[key].ServiceAccount,
 					update_info[key].Status, update_info[key].HostIP, update_info[key].PodIP, int64(update_info[key].RestartCount), getStarttime(update_info[key].RestartTime.Unix(), biastime),
 					update_info[key].Condition, update_info[key].StaticPod, update_info[key].ReferenceKind, update_info[key].ReferenceUID, getUID("persistentvolumeclaim", update_info[key].NamespaceName, update_info[key].PersistentVolumeClaim),
 					1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingPod
 			update_data.UID = update_info[key].UID
@@ -904,38 +1083,55 @@ func updatePodinfo(update_info map[string]kubeapi.MappingPod, update_list []stri
 			mapPodInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s pod update is completed", hostname))
+
 		apiresource.pod = mapPodInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertPodinfo(ArrResource Podinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrUid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_POD_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_POD_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - pod insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_POD_INFO, ontunetime)
 }
 
 func container_updateCheck(new_info map[string]kubeapi.MappingContainer, old_info map[string]kubeapi.MappingContainer) []string {
@@ -964,8 +1160,9 @@ func container_updateCheck(new_info map[string]kubeapi.MappingContainer, old_inf
 
 func updateEnableContainerinfo(ontunetime int64, update_info map[string]kubeapi.MappingContainer) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -977,7 +1174,9 @@ func updateEnableContainerinfo(ontunetime int64, update_info map[string]kubeapi.
 
 	container_key, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_CONTAINER_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where poduid||':'||containername not in "+container_key+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING containername, poduid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateName string
 	var poduid string
@@ -987,7 +1186,9 @@ func updateEnableContainerinfo(ontunetime int64, update_info map[string]kubeapi.
 		mapContainerInfo := apiresource.container
 		for result.Next() {
 			err := result.Scan(&updateName, &poduid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 
 			key := poduid + ":" + updateName
 			delete(mapContainerInfo, key)
@@ -1004,30 +1205,39 @@ func updateEnableContainerinfo(ontunetime int64, update_info map[string]kubeapi.
 
 func updateContainerinfo(update_info map[string]kubeapi.MappingContainer, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapContainerInfo := apiresource.container
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
 			result, err := tx.Exec(context.Background(), UPDATE_CONTAINER_INFO, update_info[key].UID, update_info[key].Image, update_info[key].Ports, update_info[key].Env, update_info[key].LimitCpu,
 				update_info[key].LimitMemory, update_info[key].LimitStorage, update_info[key].LimitEphemeral, update_info[key].RequestCpu, update_info[key].RequestMemory, update_info[key].RequestStorage,
 				update_info[key].RequestEphemeral, update_info[key].VolumeMounts, update_info[key].State, ontunetime, update_info[key].Name, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
 				_, insert_err := tx.Exec(context.Background(), INSERT_CONTAINER_INFO, update_info[key].UID, update_info[key].Name, update_info[key].Image, update_info[key].Ports, update_info[key].Env, update_info[key].LimitCpu,
 					update_info[key].LimitMemory, update_info[key].LimitStorage, update_info[key].LimitEphemeral, update_info[key].RequestCpu, update_info[key].RequestMemory, update_info[key].RequestStorage,
 					update_info[key].RequestEphemeral, update_info[key].VolumeMounts, update_info[key].State, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingContainer
 			update_data.UID = update_info[key].UID
@@ -1052,38 +1262,55 @@ func updateContainerinfo(update_info map[string]kubeapi.MappingContainer, update
 			mapContainerInfo[container_key] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s container update is completed", hostname))
+
 		apiresource.container = mapContainerInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertContainerinfo(ArrResource Containerinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrContainername); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_CONTAINER_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_CONTAINER_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - container insertion is completed: %s", strings.Join(ArrResource.ArrContainername, ",")))
+
+	updateTableinfo(TB_KUBE_CONTAINER_INFO, ontunetime)
 }
 
 func service_updateCheck(new_info map[string]kubeapi.MappingService, old_info map[string]kubeapi.MappingService) []string {
@@ -1110,8 +1337,9 @@ func service_updateCheck(new_info map[string]kubeapi.MappingService, old_info ma
 
 func updateEnableServiceinfo(ontunetime int64, update_info map[string]kubeapi.MappingService) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1123,7 +1351,9 @@ func updateEnableServiceinfo(ontunetime int64, update_info map[string]kubeapi.Ma
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_SVC_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -1132,7 +1362,9 @@ func updateEnableServiceinfo(ontunetime int64, update_info map[string]kubeapi.Ma
 		mapServiceInfo := apiresource.service
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapServiceInfo, updateUid)
 			returnVal++
 		}
@@ -1147,30 +1379,39 @@ func updateEnableServiceinfo(ontunetime int64, update_info map[string]kubeapi.Ma
 
 func updateServiceinfo(update_info map[string]kubeapi.MappingService, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapServiceInfo := apiresource.service
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_SVC_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime),
+			result, err := tx.Exec(context.Background(), UPDATE_SVC_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime),
 				update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceType, update_info[key].ClusterIP, update_info[key].Ports, ontunetime,
 				update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_SVC_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID,
+				_, insert_err := tx.Exec(context.Background(), INSERT_SVC_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID,
 					getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceType, update_info[key].ClusterIP,
 					update_info[key].Ports, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingService
 			update_data.UID = update_info[key].UID
@@ -1187,38 +1428,55 @@ func updateServiceinfo(update_info map[string]kubeapi.MappingService, update_lis
 			mapServiceInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s service update is completed", hostname))
+
 		apiresource.service = mapServiceInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertServiceinfo(ArrResource Serviceinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrSvcname); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_SVC_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_SVC_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - service insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_SVC_INFO, ontunetime)
 }
 
 func deploy_updateCheck(new_info map[string]kubeapi.MappingDeployment, old_info map[string]kubeapi.MappingDeployment) []string {
@@ -1245,8 +1503,9 @@ func deploy_updateCheck(new_info map[string]kubeapi.MappingDeployment, old_info 
 
 func updateEnableDeployinfo(ontunetime int64, update_info map[string]kubeapi.MappingDeployment) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1258,7 +1517,9 @@ func updateEnableDeployinfo(ontunetime int64, update_info map[string]kubeapi.Map
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_DEPLOY_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -1267,7 +1528,9 @@ func updateEnableDeployinfo(ontunetime int64, update_info map[string]kubeapi.Map
 		mapDeployInfo := apiresource.deployment
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapDeployInfo, updateUid)
 			returnVal++
 		}
@@ -1282,30 +1545,39 @@ func updateEnableDeployinfo(ontunetime int64, update_info map[string]kubeapi.Map
 
 func updateDeployinfo(update_info map[string]kubeapi.MappingDeployment, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapDeployInfo := apiresource.deployment
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_DEPLOY_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceAccount,
+			result, err := tx.Exec(context.Background(), UPDATE_DEPLOY_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceAccount,
 				update_info[key].Replicas, update_info[key].UpdatedReplicas, update_info[key].ReadyReplicas, update_info[key].AvailableReplicas, update_info[key].ObservedGeneneration,
 				ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_DEPLOY_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
+				_, insert_err := tx.Exec(context.Background(), INSERT_DEPLOY_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
 					update_info[key].ServiceAccount, update_info[key].Replicas, update_info[key].UpdatedReplicas, update_info[key].ReadyReplicas, update_info[key].AvailableReplicas,
 					update_info[key].ObservedGeneneration, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingDeployment
 			update_data.UID = update_info[key].UID
@@ -1325,38 +1597,55 @@ func updateDeployinfo(update_info map[string]kubeapi.MappingDeployment, update_l
 			mapDeployInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s deployment update is completed", hostname))
+
 		apiresource.deployment = mapDeployInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertDeployinfo(ArrResource Deployinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrDeployname); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_DEPLOY_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_DEPLOY_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - deployment insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_DEPLOY_INFO, ontunetime)
 }
 
 func stateful_updateCheck(new_info map[string]kubeapi.MappingStatefulSet, old_info map[string]kubeapi.MappingStatefulSet) []string {
@@ -1383,8 +1672,9 @@ func stateful_updateCheck(new_info map[string]kubeapi.MappingStatefulSet, old_in
 
 func updateEnableStatefulinfo(ontunetime int64, update_info map[string]kubeapi.MappingStatefulSet) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1396,20 +1686,24 @@ func updateEnableStatefulinfo(ontunetime int64, update_info map[string]kubeapi.M
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_STS_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
 	if ar, ok := mapApiResource.Load(hostip); ok {
 		apiresource := ar.(*ApiResource)
-		mapStatefulInfo := apiresource.statefulset
+		mapStatefulSetInfo := apiresource.statefulset
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
-			delete(mapStatefulInfo, updateUid)
+			if !errorCheck(err) {
+				return 0
+			}
+			delete(mapStatefulSetInfo, updateUid)
 			returnVal++
 		}
-		apiresource.statefulset = mapStatefulInfo
+		apiresource.statefulset = mapStatefulSetInfo
 		mapApiResource.Store(hostip, apiresource)
 	}
 
@@ -1420,30 +1714,39 @@ func updateEnableStatefulinfo(ontunetime int64, update_info map[string]kubeapi.M
 
 func updateStatefulinfo(update_info map[string]kubeapi.MappingStatefulSet, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
-		mapStatefulInfo := apiresource.statefulset
+		mapStatefulSetInfo := apiresource.statefulset
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_STATEFUL_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceAccount,
+			result, err := tx.Exec(context.Background(), UPDATE_STATEFUL_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceAccount,
 				update_info[key].Replicas, update_info[key].UpdatedReplicas, update_info[key].ReadyReplicas, update_info[key].AvailableReplicas, ontunetime, update_info[key].UID,
 				common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_STATEFUL_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
+				_, insert_err := tx.Exec(context.Background(), INSERT_STATEFUL_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
 					update_info[key].ServiceAccount, update_info[key].Replicas, update_info[key].UpdatedReplicas, update_info[key].ReadyReplicas,
 					update_info[key].AvailableReplicas, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingStatefulSet
 			update_data.UID = update_info[key].UID
@@ -1459,41 +1762,58 @@ func updateStatefulinfo(update_info map[string]kubeapi.MappingStatefulSet, updat
 			update_data.ReadyReplicas = update_info[key].ReadyReplicas
 			update_data.AvailableReplicas = update_info[key].AvailableReplicas
 			update_data.Host = update_info[key].Host
-			mapStatefulInfo[update_info[key].UID] = update_data
+			mapStatefulSetInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
-		apiresource.statefulset = mapStatefulInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s statefulset update is completed", hostname))
+
+		apiresource.statefulset = mapStatefulSetInfo
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertStatefulinfo(ArrResource StateFulSetinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrStsname); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_STATEFUL_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_STS_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - statefulset insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_STS_INFO, ontunetime)
 }
 
 func daemonset_updateCheck(new_info map[string]kubeapi.MappingDaemonSet, old_info map[string]kubeapi.MappingDaemonSet) []string {
@@ -1520,8 +1840,9 @@ func daemonset_updateCheck(new_info map[string]kubeapi.MappingDaemonSet, old_inf
 
 func updateEnableDaemonsetinfo(ontunetime int64, update_info map[string]kubeapi.MappingDaemonSet) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1533,7 +1854,9 @@ func updateEnableDaemonsetinfo(ontunetime int64, update_info map[string]kubeapi.
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_DS_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -1542,7 +1865,9 @@ func updateEnableDaemonsetinfo(ontunetime int64, update_info map[string]kubeapi.
 		mapDaemonSetInfo := apiresource.daemonset
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapDaemonSetInfo, updateUid)
 			returnVal++
 		}
@@ -1557,30 +1882,39 @@ func updateEnableDaemonsetinfo(ontunetime int64, update_info map[string]kubeapi.
 
 func updateDaemonsetinfo(update_info map[string]kubeapi.MappingDaemonSet, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapDaemonSetInfo := apiresource.daemonset
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_DAEMONSET_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceAccount,
+			result, err := tx.Exec(context.Background(), UPDATE_DAEMONSET_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].ServiceAccount,
 				update_info[key].CurrentNumberScheduled, update_info[key].DesiredNumberScheduled, update_info[key].NumberReady, update_info[key].UpdatedNumberScheduled,
 				update_info[key].NumberAvailable, ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_DAEMONSET_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
+				_, insert_err := tx.Exec(context.Background(), INSERT_DAEMONSET_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
 					update_info[key].ServiceAccount, update_info[key].CurrentNumberScheduled, update_info[key].DesiredNumberScheduled, update_info[key].NumberReady, update_info[key].UpdatedNumberScheduled,
 					update_info[key].NumberAvailable, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingDaemonSet
 			update_data.UID = update_info[key].UID
@@ -1600,38 +1934,55 @@ func updateDaemonsetinfo(update_info map[string]kubeapi.MappingDaemonSet, update
 			mapDaemonSetInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s daemonset update is completed", hostname))
+
 		apiresource.daemonset = mapDaemonSetInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertDaemonsetinfo(ArrResource DaemonSetinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrDsname); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_DAEMONSET_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_DS_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - daemonset insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_DS_INFO, ontunetime)
 }
 
 func replicaset_updateCheck(new_info map[string]kubeapi.MappingReplicaSet, old_info map[string]kubeapi.MappingReplicaSet) []string {
@@ -1658,8 +2009,9 @@ func replicaset_updateCheck(new_info map[string]kubeapi.MappingReplicaSet, old_i
 
 func updateEnableReplicasetinfo(ontunetime int64, update_info map[string]kubeapi.MappingReplicaSet) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1671,7 +2023,9 @@ func updateEnableReplicasetinfo(ontunetime int64, update_info map[string]kubeapi
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_RS_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -1680,7 +2034,9 @@ func updateEnableReplicasetinfo(ontunetime int64, update_info map[string]kubeapi
 		mapReplicaSetInfo := apiresource.replicaset
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapReplicaSetInfo, updateUid)
 			returnVal++
 		}
@@ -1695,30 +2051,39 @@ func updateEnableReplicasetinfo(ontunetime int64, update_info map[string]kubeapi
 
 func updateReplicasetinfo(update_info map[string]kubeapi.MappingReplicaSet, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapReplicaSetInfo := apiresource.replicaset
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_REPLICASET_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].Replicas,
+			result, err := tx.Exec(context.Background(), UPDATE_REPLICASET_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].Replicas,
 				update_info[key].FullyLabeledReplicas, update_info[key].ReadyReplicas, update_info[key].AvailableReplicas, update_info[key].ObservedGeneneration,
 				update_info[key].ReferenceKind, update_info[key].ReferenceUID, ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_REPLICASET_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
+				_, insert_err := tx.Exec(context.Background(), INSERT_REPLICASET_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector,
 					update_info[key].Replicas, update_info[key].FullyLabeledReplicas, update_info[key].ReadyReplicas, update_info[key].AvailableReplicas, update_info[key].ObservedGeneneration,
 					update_info[key].ReferenceKind, update_info[key].ReferenceUID, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingReplicaSet
 			update_data.UID = update_info[key].UID
@@ -1739,38 +2104,55 @@ func updateReplicasetinfo(update_info map[string]kubeapi.MappingReplicaSet, upda
 			mapReplicaSetInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s replicaset update is completed", hostname))
+
 		apiresource.replicaset = mapReplicaSetInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertReplicasetinfo(ArrResource ReplicaSetinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrRsname); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_REPLICASET_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_RS_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - replicaset insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_RS_INFO, ontunetime)
 }
 
 func pvc_updateCheck(new_info map[string]kubeapi.MappingPvc, old_info map[string]kubeapi.MappingPvc) []string {
@@ -1797,8 +2179,9 @@ func pvc_updateCheck(new_info map[string]kubeapi.MappingPvc, old_info map[string
 
 func updateEnablePvcinfo(ontunetime int64, update_info map[string]kubeapi.MappingPvc) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1810,7 +2193,9 @@ func updateEnablePvcinfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_PVC_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -1819,7 +2204,9 @@ func updateEnablePvcinfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 		mapPvcInfo := apiresource.persistentvolumeclaim
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapPvcInfo, updateUid)
 			returnVal++
 		}
@@ -1834,29 +2221,38 @@ func updateEnablePvcinfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 
 func updatePvcinfo(update_info map[string]kubeapi.MappingPvc, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapPvcInfo := apiresource.persistentvolumeclaim
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_PVC_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].AccessModes,
+			result, err := tx.Exec(context.Background(), UPDATE_PVC_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].Selector, update_info[key].AccessModes,
 				update_info[key].RequestStorage, update_info[key].Status, getUID("storageclass", update_info[key].Host, update_info[key].StorageClassName), ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_PVC_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime),
+				_, insert_err := tx.Exec(context.Background(), INSERT_PVC_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime),
 					update_info[key].Labels, update_info[key].Selector, update_info[key].AccessModes,
 					update_info[key].RequestStorage, update_info[key].Status, getUID("storageclass", update_info[key].Host, update_info[key].StorageClassName), 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingPvc
 			update_data.UID = update_info[key].UID
@@ -1874,38 +2270,55 @@ func updatePvcinfo(update_info map[string]kubeapi.MappingPvc, update_list []stri
 			mapPvcInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s persistentvolumeclaim update is completed", hostname))
+
 		apiresource.persistentvolumeclaim = mapPvcInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertPvcinfo(ArrResource Pvcinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrPvcUid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_PVC_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_PVC_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - persistentvolumeclaim insertion is completed: %s", strings.Join(ArrResource.ArrPvcUid, ",")))
+
+	updateTableinfo(TB_KUBE_PVC_INFO, ontunetime)
 }
 
 func pv_updateCheck(new_info map[string]kubeapi.MappingPv, old_info map[string]kubeapi.MappingPv) []string {
@@ -1932,8 +2345,9 @@ func pv_updateCheck(new_info map[string]kubeapi.MappingPv, old_info map[string]k
 
 func updateEnablePvinfo(ontunetime int64, update_info map[string]kubeapi.MappingPv) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -1945,7 +2359,9 @@ func updateEnablePvinfo(ontunetime int64, update_info map[string]kubeapi.Mapping
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_PV_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where pvuid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING pvuid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
@@ -1954,7 +2370,9 @@ func updateEnablePvinfo(ontunetime int64, update_info map[string]kubeapi.Mapping
 		mapPvInfo := apiresource.persistentvolume
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return 0
+			}
 			delete(mapPvInfo, updateUid)
 			returnVal++
 		}
@@ -1969,29 +2387,38 @@ func updateEnablePvinfo(ontunetime int64, update_info map[string]kubeapi.Mapping
 
 func updatePvinfo(update_info map[string]kubeapi.MappingPv, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
 		mapPvInfo := apiresource.persistentvolume
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
 			result, err := tx.Exec(context.Background(), UPDATE_PV_INFO, update_info[key].Name, update_info[key].PvcUID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels, update_info[key].AccessModes,
 				update_info[key].Capacity, update_info[key].ReclaimPolicy, update_info[key].Status, ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
 				_, insert_err := tx.Exec(context.Background(), INSERT_PV_INFO, update_info[key].Name, update_info[key].UID, update_info[key].PvcUID, getStarttime(update_info[key].StartTime.Unix(), biastime),
 					update_info[key].Labels, update_info[key].AccessModes,
 					update_info[key].Capacity, update_info[key].ReclaimPolicy, update_info[key].Status, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingPv
 			update_data.UID = update_info[key].UID
@@ -2008,38 +2435,55 @@ func updatePvinfo(update_info map[string]kubeapi.MappingPv, update_list []string
 			mapPvInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s persistentvolume update is completed", hostname))
+
 		apiresource.persistentvolume = mapPvInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertPvinfo(ArrResource Pvinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrPvUid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_PV_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_PV_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - persistentvolume insertion is completed: %s", strings.Join(ArrResource.ArrPvUid, ",")))
+
+	updateTableinfo(TB_KUBE_PV_INFO, ontunetime)
 }
 
 func sc_updateCheck(new_info map[string]kubeapi.MappingStorageClass, old_info map[string]kubeapi.MappingStorageClass) []string {
@@ -2066,8 +2510,9 @@ func sc_updateCheck(new_info map[string]kubeapi.MappingStorageClass, old_info ma
 
 func updateEnableScinfo(ontunetime int64, update_info map[string]kubeapi.MappingStorageClass) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -2079,20 +2524,24 @@ func updateEnableScinfo(ontunetime int64, update_info map[string]kubeapi.Mapping
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_SC_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
 	if ar, ok := mapApiResource.Load(hostip); ok {
 		apiresource := ar.(*ApiResource)
-		mapScInfo := apiresource.storageclass
+		mapStorageClassInfo := apiresource.storageclass
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
-			delete(mapScInfo, updateUid)
+			if !errorCheck(err) {
+				return 0
+			}
+			delete(mapStorageClassInfo, updateUid)
 			returnVal++
 		}
-		apiresource.storageclass = mapScInfo
+		apiresource.storageclass = mapStorageClassInfo
 		mapApiResource.Store(hostip, apiresource)
 	}
 
@@ -2103,15 +2552,18 @@ func updateEnableScinfo(ontunetime int64, update_info map[string]kubeapi.Mapping
 
 func updateScinfo(update_info map[string]kubeapi.MappingStorageClass, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
-		mapScInfo := apiresource.storageclass
+		mapStorageClassInfo := apiresource.storageclass
 
 		var iVolexp int
 		for _, key := range update_list {
@@ -2122,16 +2574,22 @@ func updateScinfo(update_info map[string]kubeapi.MappingStorageClass, update_lis
 			}
 
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
 			result, err := tx.Exec(context.Background(), UPDATE_SC_INFO, common.ClusterID[update_info[key].Host], update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels,
 				update_info[key].Provisioner, update_info[key].ReclaimPolicy, update_info[key].VolumeBindingMode, iVolexp, ontunetime, update_info[key].UID)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
 				_, insert_err := tx.Exec(context.Background(), INSERT_SC_INFO, common.ClusterID[update_info[key].Host], update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels,
 					update_info[key].Provisioner, update_info[key].ReclaimPolicy, update_info[key].VolumeBindingMode, iVolexp, 1, ontunetime, ontunetime)
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingStorageClass
 			update_data.UID = update_info[key].UID
@@ -2143,41 +2601,58 @@ func updateScinfo(update_info map[string]kubeapi.MappingStorageClass, update_lis
 			update_data.ReclaimPolicy = update_info[key].ReclaimPolicy
 			update_data.VolumeBindingMode = update_info[key].VolumeBindingMode
 			update_data.AllowVolumeExpansion = update_info[key].AllowVolumeExpansion
-			mapScInfo[update_info[key].UID] = update_data
+			mapStorageClassInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
-		apiresource.storageclass = mapScInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s storageclass update is completed", hostname))
+
+		apiresource.storageclass = mapStorageClassInfo
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertScinfo(ArrResource Scinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrUid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_SC_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_SC_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - storageclass insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_SC_INFO, ontunetime)
 }
 
 func ing_updateCheck(new_info map[string]kubeapi.MappingIngress, old_info map[string]kubeapi.MappingIngress) []string {
@@ -2204,8 +2679,9 @@ func ing_updateCheck(new_info map[string]kubeapi.MappingIngress, old_info map[st
 
 func updateEnableInginfo(ontunetime int64, update_info map[string]kubeapi.MappingIngress) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -2217,20 +2693,24 @@ func updateEnableInginfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 
 	uid, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_ING_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateUid string
 	var returnVal int64
 	if ar, ok := mapApiResource.Load(hostip); ok {
 		apiresource := ar.(*ApiResource)
-		mapIngInfo := apiresource.ingress
+		mapIngressInfo := apiresource.ingress
 		for result.Next() {
 			err := result.Scan(&updateUid)
-			errorCheck(err)
-			delete(mapIngInfo, updateUid)
+			if !errorCheck(err) {
+				return 0
+			}
+			delete(mapIngressInfo, updateUid)
 			returnVal++
 		}
-		apiresource.ingress = mapIngInfo
+		apiresource.ingress = mapIngressInfo
 		mapApiResource.Store(hostip, apiresource)
 	}
 
@@ -2241,28 +2721,37 @@ func updateEnableInginfo(ontunetime int64, update_info map[string]kubeapi.Mappin
 
 func updateInginfo(update_info map[string]kubeapi.MappingIngress, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
-		mapIngInfo := apiresource.ingress
+		mapIngressInfo := apiresource.ingress
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_ING_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels,
+			result, err := tx.Exec(context.Background(), UPDATE_ING_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels,
 				update_info[key].IngressClassName, ontunetime, update_info[key].UID, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_ING_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels,
+				_, insert_err := tx.Exec(context.Background(), INSERT_ING_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID, getStarttime(update_info[key].StartTime.Unix(), biastime), update_info[key].Labels,
 					update_info[key].IngressClassName, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingIngress
 			update_data.UID = update_info[key].UID
@@ -2271,41 +2760,58 @@ func updateInginfo(update_info map[string]kubeapi.MappingIngress, update_list []
 			update_data.Host = update_info[key].Host
 			update_data.Labels = update_info[key].Labels
 			update_data.IngressClassName = update_info[key].IngressClassName
-			mapIngInfo[update_info[key].UID] = update_data
+			mapIngressInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
-		apiresource.ingress = mapIngInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s ingress update is completed", hostname))
+
+		apiresource.ingress = mapIngressInfo
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertInginfo(ArrResource Inginfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrUid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_ING_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_ING_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - ingress insertion is completed: %s", strings.Join(ArrResource.ArrUid, ",")))
+
+	updateTableinfo(TB_KUBE_ING_INFO, ontunetime)
 }
 
 func inghost_updateCheck(new_info map[string]kubeapi.MappingIngressHost, old_info map[string]kubeapi.MappingIngressHost) []string {
@@ -2332,8 +2838,9 @@ func inghost_updateCheck(new_info map[string]kubeapi.MappingIngressHost, old_inf
 
 func updateEnableInghostinfo(ontunetime int64, update_info map[string]kubeapi.MappingIngressHost) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -2345,20 +2852,24 @@ func updateEnableInghostinfo(ontunetime int64, update_info map[string]kubeapi.Ma
 
 	name, hostip := getUidHost(uidhostinfo)
 	result, err := conn.Query(context.Background(), "update "+TB_KUBE_INGHOST_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where hostname not in "+name+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING hostname")
-	errorCheck(err)
+	if !errorCheck(err) {
+		return 0
+	}
 
 	var updateName string
 	var returnVal int64
 	if ar, ok := mapApiResource.Load(hostip); ok {
 		apiresource := ar.(*ApiResource)
-		mapIngHostInfo := apiresource.ingresshost
+		mapIngressHostInfo := apiresource.ingresshost
 		for result.Next() {
 			err := result.Scan(&updateName)
-			errorCheck(err)
-			delete(mapIngHostInfo, updateName)
+			if !errorCheck(err) {
+				return 0
+			}
+			delete(mapIngressHostInfo, updateName)
 			returnVal++
 		}
-		apiresource.ingresshost = mapIngHostInfo
+		apiresource.ingresshost = mapIngressHostInfo
 		mapApiResource.Store(hostip, apiresource)
 	}
 
@@ -2369,30 +2880,39 @@ func updateEnableInghostinfo(ontunetime int64, update_info map[string]kubeapi.Ma
 
 func updateInghostinfo(update_info map[string]kubeapi.MappingIngressHost, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ar, ok := mapApiResource.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ar, ok := mapApiResource.Load(hostname); ok {
 		apiresource := ar.(*ApiResource)
-		mapIngHostInfo := apiresource.ingresshost
+		mapIngressHostInfo := apiresource.ingresshost
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
 			result, err := tx.Exec(context.Background(), UPDATE_INGHOST_INFO, update_info[key].UID, update_info[key].BackendType, update_info[key].BackendName,
 				update_info[key].PathType, update_info[key].Path, update_info[key].ServicePort, update_info[key].ResourceAPIGroup, update_info[key].ResourceKind,
 				ontunetime, update_info[key].Hostname, common.ClusterID[update_info[key].Host])
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
 				_, insert_err := tx.Exec(context.Background(), INSERT_INGHOST_INFO, update_info[key].UID, update_info[key].BackendType, update_info[key].BackendName,
 					update_info[key].Hostname, update_info[key].PathType, update_info[key].Path, update_info[key].ServicePort, update_info[key].ResourceAPIGroup,
 					update_info[key].ResourceKind, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingIngressHost
 			update_data.UID = update_info[key].UID
@@ -2405,39 +2925,56 @@ func updateInghostinfo(update_info map[string]kubeapi.MappingIngressHost, update
 			update_data.ServicePort = update_info[key].ServicePort
 			update_data.ResourceAPIGroup = update_info[key].ResourceAPIGroup
 			update_data.ResourceKind = update_info[key].ResourceKind
-			mapIngHostInfo[update_info[key].Hostname] = update_data
+			mapIngressHostInfo[update_info[key].Hostname] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
-		apiresource.ingresshost = mapIngHostInfo
-		mapApiResource.Store(update_info[update_list[0]].Host, apiresource)
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s ingress host update is completed", hostname))
+
+		apiresource.ingresshost = mapIngressHostInfo
+		mapApiResource.Store(hostname, apiresource)
 	}
 }
 
 func insertInghostinfo(ArrResource IngHostinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrHostname); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_INGHOST_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_INGHOST_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - ingress host insertion is completed: %s", strings.Join(ArrResource.ArrBackendname, ",")))
+
+	updateTableinfo(TB_KUBE_INGHOST_INFO, ontunetime)
 }

@@ -14,6 +14,8 @@ type RequestInfo struct {
 	Namespace string
 }
 
+const API_RECEIVE_INTERVAL = 10
+
 var EndChan chan string = make(chan string)
 
 // var cancelChan chan os.Signal = make(chan os.Signal)
@@ -23,7 +25,9 @@ var ChannelResourceData chan map[string][]byte = make(chan map[string][]byte)
 var ChannelEventlogData chan map[string][]byte = make(chan map[string][]byte)
 var ChannelMetricData chan []byte = make(chan []byte)
 var ChannelRequestChangeHost chan string = make(chan string)
+var ChannelManagerDBConnection chan bool = make(chan bool)
 
+var ManagerDBConnected bool = true
 var ManagerID int
 var ClusterID map[string]int = make(map[string]int)
 var LogManager *logger.OnTuneLogManager
@@ -43,11 +47,13 @@ var ClusterStatusMap *sync.Map = &sync.Map{}
 var ShorttermDuration int
 var LongtermDuration int
 var RealtimeInterval int
+var AvgInterval int
 var ResourceInterval int
 var RateInterval int
 var EventlogInterval int
 var InitVacuum bool
 var AutoVacuum bool
+var ReceiveInterval int = API_RECEIVE_INTERVAL / 2
 
 var TableSpace bool
 var TableSpaceName string

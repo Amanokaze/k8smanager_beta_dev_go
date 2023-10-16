@@ -47,8 +47,13 @@ func main() {
 	common.ShorttermTableSpace = conf.GetTableShorttermSpace()
 	common.ShorttermTableSpaceName = conf.GetTableShorttermSpaceName()
 	common.ShorttermTableSpacePath = conf.GetTableShorttermSpacePath()
+	common.LongtermDuration = conf.GetLongtermduration()
+	common.LongtermTableSpace = conf.GetTableLongtermSpace()
+	common.LongtermTableSpaceName = conf.GetTableLongtermSpaceName()
+	common.LongtermTableSpacePath = conf.GetTableLongtermSpacePath()
 	common.DisconnectFailCount = conf.GetDisconnectFailCount()
 	common.RealtimeInterval = int(conf.GetRealtimeInterval())
+	common.AvgInterval = int(conf.GetAvgInterval())
 	common.ResourceInterval = int(conf.GetResourceInterval())
 	common.RateInterval = int(conf.GetRateInterval())
 	common.EventlogInterval = int(conf.GetEventlogInterval())
@@ -61,6 +66,8 @@ func main() {
 
 	clientset, host, kubeconfig := kubeapi.GetClientsetConfig(common.LogManager, conf.GetKubeConfig())
 
+	go database.ManagerDBCheck()
+
 	database.MakeDBConn(&dbinfo)
 	common.LogManager.Debug("MakeDBConn Complete")
 
@@ -68,17 +75,32 @@ func main() {
 
 	common.LogManager.Debug("QueryManagerinfo Previous Exection")
 	common.ManagerID = database.QueryManagerinfo(managername, "Description", dbinfo.GetHost())
+	if common.ManagerID == 0 {
+		common.LogManager.WriteLog("QueryManagerinfo is failed, Program is terminated.")
+		return
+	}
+
 	for i := 0; i < int(common.KubeClusterCount); i++ {
-		common.ClusterID[host[i]] = database.QueryClusterinfo(common.ManagerID, kubeconfig[i].GetName(), kubeconfig[i].GetContext(), host[i])
+		clusterid := database.QueryClusterinfo(common.ManagerID, kubeconfig[i].GetName(), kubeconfig[i].GetContext(), host[i])
+		if clusterid == 0 {
+			common.LogManager.WriteLog(fmt.Sprintf("%s Cluster is not registered.", host[i]))
+		} else {
+			common.ClusterID[host[i]] = clusterid
+		}
+	}
+
+	if len(common.ClusterID) == 0 {
+		common.LogManager.WriteLog("Cluster is not registered, Program is terminated.")
+		return
 	}
 	common.LogManager.Debug("QueryManagerinfo is completed")
 
 	database.QueryUnusedClusterReset()
 	common.LogManager.Debug("QueryUnusedClusterReset is completed")
 
-	database.InitMapData()
-	database.InitMapEventlogData()
-	database.InitMapMetricData()
+	database.InitResourceDataMap()
+	database.InitEventDataMap()
+	database.InitMetricDataMap()
 
 	event.SetEvent()
 
@@ -89,8 +111,9 @@ func main() {
 	go database.DailyPerfTable()
 	go database.ResourceReceive()
 	go database.EventlogReceive()
-	go database.MetricInsert()
+	go database.MetricDataReceive()
 	go database.UpdateClusterStatusinfo()
+	go database.GenerateLongTermData()
 
 	common.Once.Do(func() {
 		kubeapi.SetClientInfo(common.KubeClusterCount, clientset, conf)

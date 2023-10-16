@@ -10,7 +10,7 @@ import (
 
 func InitEventInfo(host string, clusterid int) {
 	mapEventInfo := make(map[string]kubeapi.MappingEvent)
-	rowsCnt := select_row_count_enabled(TB_KUBE_EVENT_INFO, clusterid)
+	rowsCnt := selectRowCountEnabled(TB_KUBE_EVENT_INFO, clusterid)
 	if rowsCnt > 0 {
 		if len(mapEventInfo) == 0 {
 			var name string
@@ -28,13 +28,15 @@ func InitEventInfo(host string, clusterid int) {
 			var reason string
 			var message string
 			var enabled int
-			rows := select_row_enabled("eventname, uid, nsuid, firsttime, lasttime, labels, eventtype, eventcount, objkind, objuid, srccomponent, srchost, reason, message, enabled", TB_KUBE_EVENT_INFO, clusterid)
+			rows := selectRowEnabled("eventname, uid, nsuid, firsttime, lasttime, labels, eventtype, eventcount, objkind, objuid, srccomponent, srchost, reason, message, enabled", TB_KUBE_EVENT_INFO, clusterid)
 			for rows.Next() {
 				err := rows.Scan(&name, &uid, &nsuid, &firsttime, &lasttime, &labels, &eventtype, &eventcount, &objkind, &objuid, &srccomponent, &srchost, &reason, &message, &enabled)
-				errorCheck(err)
+				if !errorCheck(err) {
+					return
+				}
 				if enabled == 1 {
 					var resource_data_temp kubeapi.MappingEvent
-					if ns_map, ok := common.ResourceMap.Load("namespace"); ok {
+					if ns_map, ok := common.ResourceMap.Load(METRIC_VAR_NAMESPACE); ok {
 						ns_map.(*sync.Map).Range(func(key, value any) bool {
 							if value.(string) == nsuid {
 								resource_data_temp.NamespaceName = key.(string)
@@ -83,7 +85,7 @@ func InitEventInfo(host string, clusterid int) {
 }
 
 // ############################ Init Data Load
-func InitMapEventlogData() {
+func InitEventDataMap() {
 	defer errorRecover()
 
 	for k, v := range common.ClusterID {
@@ -94,15 +96,15 @@ func InitMapEventlogData() {
 		InitEventInfo(k, v)
 	}
 
-	// rowsCnt = select_row_count_enabled(TB_KUBE_LOG_INFO)
+	// rowsCnt = selectRowCountEnabled(TB_KUBE_LOG_INFO)
 	// if rowsCnt > 0 {
 	// 	var logtype string
 	// 	var poduid string
 	// 	var starttime int64
-	// 	rows := select_row_enabled("logtype, poduid, starttime", TB_KUBE_LOG_INFO)
+	// 	rows := selectRowEnabled("logtype, poduid, starttime", TB_KUBE_LOG_INFO)
 	// 	for rows.Next() {
 	// 		err := rows.Scan(&logtype, &poduid, &starttime)
-	// 		errorCheck(err)
+	// 		if !errorCheck(err) { return }
 
 	// 		if logtype == "pod" {
 	// 			mapPodLogRecentTime[poduid] = time.Unix(starttime, 0)

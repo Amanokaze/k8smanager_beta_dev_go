@@ -359,7 +359,7 @@ func (m *MappingResourceSource) MakeNamespaceV1Data(kcore *types.CoreV1Data) {
 		if len(m.Namespaces) > 0 {
 			ns_json, _ := json.Marshal(m.Namespaces)
 			ns_resource_map := make(map[string][]byte)
-			ns_resource_map["namespaceinfo"] = ns_json
+			ns_resource_map["namespace"] = ns_json
 			common.ChannelResourceData <- ns_resource_map
 		}
 	}
@@ -416,7 +416,7 @@ func (m *MappingResourceSource) MakeNodeV1Data(kcore *types.CoreV1Data) {
 		if len(m.Nodes) > 0 {
 			node_json, _ := json.Marshal(m.Nodes)
 			node_resource_map := make(map[string][]byte)
-			node_resource_map["nodeinfo"] = node_json
+			node_resource_map["node"] = node_json
 			common.ChannelResourceData <- node_resource_map
 		}
 	}
@@ -451,7 +451,7 @@ func (m *MappingResourceSource) MakePersistentVolumeClaimV1Data(kcore *types.Cor
 		if len(m.Pvcs) > 0 {
 			pvc_json, _ := json.Marshal(m.Pvcs)
 			pvc_resource_map := make(map[string][]byte)
-			pvc_resource_map["pvcinfo"] = pvc_json
+			pvc_resource_map["pvc"] = pvc_json
 			common.ChannelResourceData <- pvc_resource_map
 		}
 	}
@@ -481,7 +481,7 @@ func (m *MappingResourceSource) MakePersistentVolumeV1Data(kcore *types.CoreV1Da
 		if len(m.Pvs) > 0 {
 			pvs_json, _ := json.Marshal(m.Pvs)
 			pvs_resource_map := make(map[string][]byte)
-			pvs_resource_map["pvinfo"] = pvs_json
+			pvs_resource_map["pv"] = pvs_json
 			common.ChannelResourceData <- pvs_resource_map
 		}
 	}
@@ -517,6 +517,21 @@ func (m *MappingResourceSource) MakePodV1Data(kcore *types.CoreV1Data) {
 				}
 			}
 
+			// Pod Status is Node Not Ready when Node is Not Ready(23.08.16)
+			var podstatus string
+			var nodestatus int
+			for _, n := range m.Nodes {
+				if n.Name == nodename {
+					nodestatus = n.Status
+					break
+				}
+			}
+			if nodestatus == 0 {
+				podstatus = "Node Not Ready"
+			} else {
+				podstatus = string(n.Status.Phase)
+			}
+
 			podconditions := make([]string, 0)
 			for _, c := range n.Status.Conditions {
 				if c.Message != "" || c.Status == corev1.ConditionFalse {
@@ -532,8 +547,11 @@ func (m *MappingResourceSource) MakePodV1Data(kcore *types.CoreV1Data) {
 
 			container_status := make(map[string]ContainerStatus)
 			for _, cs := range n.Status.ContainerStatuses {
+				// Container State is node not ready when Node is Not Ready(23.08.16)
 				var container_state string
-				if cs.State.Running != nil {
+				if nodestatus == 0 {
+					container_state = "node not ready"
+				} else if cs.State.Running != nil {
 					container_state = "running"
 				} else if cs.State.Waiting != nil {
 					container_state = "waiting"
@@ -647,7 +665,7 @@ func (m *MappingResourceSource) MakePodV1Data(kcore *types.CoreV1Data) {
 				AnnotationUID:         annotation,
 				RestartPolicy:         string(n.Spec.RestartPolicy),
 				ServiceAccount:        n.Spec.ServiceAccountName,
-				Status:                string(n.Status.Phase),
+				Status:                podstatus,
 				HostIP:                n.Status.HostIP,
 				PodIP:                 n.Status.PodIP,
 				RestartCount:          restartcount,
@@ -667,7 +685,7 @@ func (m *MappingResourceSource) MakePodV1Data(kcore *types.CoreV1Data) {
 		if len(m.Pods) > 0 {
 			pod_json, _ := json.Marshal(m.Pods)
 			pod_resource_map := make(map[string][]byte)
-			pod_resource_map["podsinfo"] = pod_json
+			pod_resource_map["pod"] = pod_json
 			common.ChannelResourceData <- pod_resource_map
 		}
 	}
@@ -714,7 +732,7 @@ func (m *MappingResourceSource) MakeServiceV1Data(kcore *types.CoreV1Data) {
 		if len(m.Services) > 0 {
 			svc_json, _ := json.Marshal(m.Services)
 			svc_resource_map := make(map[string][]byte)
-			svc_resource_map["serviceinfo"] = svc_json
+			svc_resource_map["service"] = svc_json
 			common.ChannelResourceData <- svc_resource_map
 		}
 	}
@@ -747,7 +765,7 @@ func (m *MappingResourceSource) MakeDeploymentV1Data(kapps *types.AppsV1Data) {
 		if len(m.Deployments) > 0 {
 			deploy_json, _ := json.Marshal(m.Deployments)
 			deploy_resource_map := make(map[string][]byte)
-			deploy_resource_map["deployinfo"] = deploy_json
+			deploy_resource_map["deployment"] = deploy_json
 			common.ChannelResourceData <- deploy_resource_map
 		}
 	}
@@ -926,7 +944,7 @@ func (m *MappingResourceSource) MakeIngressV1Data(knetworking *types.NetworkingV
 		if len(m.Ingresses) > 0 {
 			ingress_json, _ := json.Marshal(m.Ingresses)
 			ingress_resource_map := make(map[string][]byte)
-			ingress_resource_map["ingress_info"] = ingress_json
+			ingress_resource_map["ingress"] = ingress_json
 			common.ChannelResourceData <- ingress_resource_map
 		}
 	}

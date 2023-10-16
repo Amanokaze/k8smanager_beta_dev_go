@@ -2,13 +2,16 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"onTuneKubeManager/common"
 	"onTuneKubeManager/kubeapi"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pkg/errors"
 )
 
 // var mapPodLogRecentTime map[string]time.Time = make(map[string]time.Time)
@@ -22,13 +25,17 @@ func EventlogSender() {
 			if key == "event_update" {
 				event_data := data.(map[string]kubeapi.MappingEvent)
 				ontunetime, _ := GetOntuneTime()
+				if ontunetime == 0 {
+					return
+				}
+
 				UpdateList := event_updateCheck(event_data, mapEventInfo)
 				updateCnt := updateEnableEventinfo(ontunetime, event_data)
 				if len(UpdateList) > 0 {
 					updateEventinfo(event_data, UpdateList, ontunetime)
 				}
 				if updateCnt > 0 || len(UpdateList) > 0 {
-					update_tableinfo(TB_KUBE_EVENT_INFO, ontunetime)
+					updateTableinfo(TB_KUBE_EVENT_INFO, ontunetime)
 				}
 			} else if key == "event_insert" {
 				event_data := data.(Eventinfo)
@@ -66,8 +73,9 @@ func event_updateCheck(new_info map[string]kubeapi.MappingEvent, old_info map[st
 
 func updateEnableEventinfo(ontunetime int64, update_info map[string]kubeapi.MappingEvent) int64 {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return 0
 	}
 
 	defer conn.Release()
@@ -88,7 +96,9 @@ func updateEnableEventinfo(ontunetime int64, update_info map[string]kubeapi.Mapp
 		uid = uid + ")"
 
 		result, err := conn.Query(context.Background(), "update "+TB_KUBE_EVENT_INFO+" set enabled = 0, updatetime = "+strconv.FormatInt(ontunetime, 10)+" where uid not in "+uid+" and clusterid = "+strconv.Itoa(common.ClusterID[hostip])+" RETURNING uid")
-		errorCheck(err)
+		if !errorCheck(err) {
+			return 0
+		}
 
 		var updateUid string
 		if ae, ok := mapApiEvent.Load(hostip); ok {
@@ -96,7 +106,9 @@ func updateEnableEventinfo(ontunetime int64, update_info map[string]kubeapi.Mapp
 			mapEventInfo = apievent.event
 			for result.Next() {
 				err := result.Scan(&updateUid)
-				errorCheck(err)
+				if !errorCheck(err) {
+					return 0
+				}
 				delete(mapEventInfo, updateUid)
 				returnVal++
 			}
@@ -112,58 +124,80 @@ func updateEnableEventinfo(ontunetime int64, update_info map[string]kubeapi.Mapp
 
 func insertEventinfo(ArrResource Eventinfo) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	ontunetime, _ := GetOntuneTime()
+	if ontunetime == 0 {
+		return
+	}
+
 	for i := 0; i < len(ArrResource.ArrEventUid); i++ {
 		ArrResource.ArrCreateTime[i] = ontunetime
 		ArrResource.ArrUpdateTime[i] = ontunetime
 	}
 
 	tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+		return
+	}
 
 	_, err = tx.Exec(context.Background(), INSERT_UNNEST_EVENT_INFO, ArrResource.GetArgs()...)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	err = tx.Commit(context.Background())
-	errorCheck(err)
+	if !errorCheck(errors.Wrap(err, "Commit error")) {
+		return
+	}
 
 	conn.Release()
 
-	update_tableinfo(TB_KUBE_EVENT_INFO, ontunetime)
+	common.LogManager.WriteLog(fmt.Sprintf("Manager DB - event insertion is completed: %s", strings.Join(ArrResource.ArrEventUid, ",")))
+
+	updateTableinfo(TB_KUBE_EVENT_INFO, ontunetime)
 }
 
 func updateEventinfo(update_info map[string]kubeapi.MappingEvent, update_list []string, ontunetime int64) {
 	conn, err := common.DBConnectionPool.Acquire(context.Background())
-	if err != nil {
-		errorCheck(err)
+	if conn == nil || err != nil {
+		errorDisconnect(errors.Wrap(err, "Acquire connection error"))
+		return
 	}
 
 	defer conn.Release()
 
-	if ae, ok := mapApiEvent.Load(update_info[update_list[0]].Host); ok {
+	hostname := update_info[update_list[0]].Host
+
+	if ae, ok := mapApiEvent.Load(hostname); ok {
 		apievent := ae.(*ApiEvent)
 		mapEventInfo = apievent.event
 
 		for _, key := range update_list {
 			tx, err := conn.BeginTx(context.Background(), pgx.TxOptions{})
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Begin transaction error")) {
+				return
+			}
 
-			result, err := tx.Exec(context.Background(), UPDATE_EVENT_INFO, common.ClusterID[update_info[key].Host], getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name,
+			result, err := tx.Exec(context.Background(), UPDATE_EVENT_INFO, common.ClusterID[update_info[key].Host], getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name,
 				getStarttime(update_info[key].Firsttime.Unix(), biastime), getStarttime(update_info[key].Lasttime.Unix(), biastime), update_info[key].Labels, update_info[key].Eventtype, update_info[key].Eventcount,
 				update_info[key].ObjectKind, GetResourceObjectUID(update_info[key]), update_info[key].SourceComponent, update_info[key].SourceHost,
 				update_info[key].Reason, update_info[key].Message, ontunetime, update_info[key].UID)
-			errorCheck(err)
+			if !errorCheck(err) {
+				return
+			}
 			n := result.RowsAffected()
 			if n == 0 {
-				_, insert_err := tx.Exec(context.Background(), INSERT_EVENT_INFO, getUID("namespace", update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID,
+				_, insert_err := tx.Exec(context.Background(), INSERT_EVENT_INFO, getUID(METRIC_VAR_NAMESPACE, update_info[key].Host, update_info[key].NamespaceName), update_info[key].Name, update_info[key].UID,
 					getStarttime(update_info[key].Firsttime.Unix(), biastime), getStarttime(update_info[key].Lasttime.Unix(), biastime), update_info[key].Labels, update_info[key].Eventtype, update_info[key].Eventcount,
 					update_info[key].ObjectKind, GetResourceObjectUID(update_info[key]), update_info[key].SourceComponent, update_info[key].SourceHost,
 					update_info[key].Reason, update_info[key].Message, 1, ontunetime, ontunetime, common.ClusterID[update_info[key].Host])
-				errorCheck(insert_err)
+				if !errorCheck(insert_err) {
+					return
+				}
 			}
 			var update_data kubeapi.MappingEvent
 			update_data.NamespaceName = update_info[key].NamespaceName
@@ -184,18 +218,22 @@ func updateEventinfo(update_info map[string]kubeapi.MappingEvent, update_list []
 			mapEventInfo[update_info[key].UID] = update_data
 
 			err = tx.Commit(context.Background())
-			errorCheck(err)
+			if !errorCheck(errors.Wrap(err, "Commit error")) {
+				return
+			}
 		}
 
+		common.LogManager.WriteLog(fmt.Sprintf("Manager DB - %s event update is completed", hostname))
+
 		apievent.event = mapEventInfo
-		mapApiEvent.Store(update_info[update_list[0]].Host, apievent)
+		mapApiEvent.Store(hostname, apievent)
 	}
 }
 
 // func insertLoginfo(ArrResource Loginfo) {
 // 	conn, err := common.DBConnectionPool.Acquire(context.Background())
 // if err != nil {
-// 	errorCheck(err)
+// 	if !errorCheck(err) { return }
 // }
 
 // 	ontunetime, _ := GetOntuneTime()
@@ -207,8 +245,8 @@ func updateEventinfo(update_info map[string]kubeapi.MappingEvent, update_list []
 // 	_, err := tx.Exec(context.Background(), INSERT_UNNEST_LOG_INFO, pq.StringArray(ArrResource.ArrLogType), pq.StringArray(ArrResource.ArrNsUid), pq.StringArray(ArrResource.ArrPodUid),
 // 		pq.Array(ArrResource.ArrStarttime), pq.StringArray(ArrResource.ArrMessage),
 // 		pq.Int64Array(ArrResource.ArrCreateTime), pq.Int64Array(ArrResource.ArrUpdateTime))
-// 	errorCheck(err)
-// 	update_tableinfo(TB_KUBE_LOG_INFO, ontunetime)
+// 	if !errorCheck(err) { return }
+// 	updateTableinfo(TB_KUBE_LOG_INFO, ontunetime)
 
 // defer conn.Release()
 // }

@@ -129,7 +129,7 @@ const INSERT_UNNEST_NAMESPACE_INFO = `
 `
 
 const UPDATE_NAMESPACE_INFO = `
-	UPDATE ` + TB_KUBE_NS_INFO + ` SET clusterid=$1, nsname=$2, starttime=$3, labels=$4, status=$5, enabled=1, updatetime=$6 WHERE nsuid = $7
+	UPDATE ` + TB_KUBE_NS_INFO + ` SET clusterid=$1, nsname=$2, starttime=$3, labels=$4, status=$5, enabled=1, updatetime=$6 WHERE nsuid = $7 and enabled=1
 `
 
 const INSERT_NAMESPACE_INFO = `
@@ -299,23 +299,23 @@ const UPDATE_SC_INFO = `
 `
 
 const INSERT_SC_INFO = `
-INSERT INTO ` + TB_KUBE_SC_INFO + ` (clusterid, scname, uid, starttime, labels, provisioner, reclaimpolicy, volumebindingmode, allowvolumeexp, enabled, createdtime, updatetime)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	INSERT INTO ` + TB_KUBE_SC_INFO + ` (clusterid, scname, uid, starttime, labels, provisioner, reclaimpolicy, volumebindingmode, allowvolumeexp, enabled, createdtime, updatetime)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 const INSERT_FSDEVICE_INFO = `
-INSERT INTO ` + TB_KUBE_FS_DEVICE_INFO + ` (devicename, createdtime, updatetime)
-VALUES ($1, $2, $3)
+	INSERT INTO ` + TB_KUBE_FS_DEVICE_INFO + ` (devicename, createdtime, updatetime)
+	VALUES ($1, $2, $3)
 `
 
 const INSERT_NETINTERFACE_INFO = `
-INSERT INTO ` + TB_KUBE_NET_INTERFACE_INFO + ` (interfacename, createdtime, updatetime)
-VALUES ($1, $2, $3)
+	INSERT INTO ` + TB_KUBE_NET_INTERFACE_INFO + ` (interfacename, createdtime, updatetime)
+	VALUES ($1, $2, $3)
 `
 
 const INSERT_METRICID_INFO = `
-INSERT INTO ` + TB_KUBE_METRIC_ID_INFO + ` (metricname, image, createdtime, updatetime)
-VALUES ($1, $2, $3, $4)
+	INSERT INTO ` + TB_KUBE_METRIC_ID_INFO + ` (metricname, image, createdtime, updatetime)
+	VALUES ($1, $2, $3, $4)
 `
 
 const INSERT_UNNEST_SC_INFO = `
@@ -329,8 +329,8 @@ const UPDATE_ING_INFO = `
 	 WHERE uid = $7 and enabled=1
 `
 const INSERT_ING_INFO = `
-INSERT INTO ` + TB_KUBE_ING_INFO + ` (nsuid, ingname, uid, starttime, labels, classname, enabled, createdtime, updatetime, clusterid)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	INSERT INTO ` + TB_KUBE_ING_INFO + ` (nsuid, ingname, uid, starttime, labels, classname, enabled, createdtime, updatetime, clusterid)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 const INSERT_UNNEST_ING_INFO = `
@@ -345,8 +345,8 @@ const UPDATE_INGHOST_INFO = `
 `
 
 const INSERT_INGHOST_INFO = `
-INSERT INTO ` + TB_KUBE_INGHOST_INFO + ` (inguid, backendtype, backendname, hostname, pathtype, path, serviceport, rscapigroup, rsckind, enabled, createdtime, updatetime, clusterid)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	INSERT INTO ` + TB_KUBE_INGHOST_INFO + ` (inguid, backendtype, backendname, hostname, pathtype, path, serviceport, rscapigroup, rsckind, enabled, createdtime, updatetime, clusterid)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 const INSERT_UNNEST_INGHOST_INFO = `
@@ -375,7 +375,18 @@ const INSERT_UNNEST_EVENT_INFO = `
 const INSERT_UNNEST_LOG_INFO = `
 	INSERT INTO ` + TB_KUBE_LOG_INFO + ` (logtype, nsuid, poduid, starttime, message, createdtime, updatetime)
 	(select * from  unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::text[], $6::bigint[], $7::bigint[]))
+`
 
+const UPDATE_STATUS = `
+	update %s set %s='%s', updatetime=%d where clusterid=%d and enabled=1
+`
+
+const DELETE_RESOURCE_ID = `
+	DELETE FROM %s WHERE %s=%d
+`
+
+const SELECT_DROP_TABLE = `
+	select tablename from %s where tablename like '%s%%' and createdtime < (select _time from %s ) - %d * %d
 `
 
 const INSERT_UNNEST_NODE_STAT = `
@@ -473,12 +484,120 @@ const INSERT_UNNEST_CONTAINER_FS_PERF = `
 	(select * from  unnest($1::text[], $2::bigint[], $3::text[], $4::text[], $5::text[], $6::int[], $7::int[], $8::double precision[], $9::double precision[], $10::bigint[]))
 `
 
+const INSERT_AVG_NODE_PERF = `
+	INSERT INTO %s
+	SELECT nodeuid, %d ontunetime, metricid, round(avg(cpuusage)) cpuusage, round(avg(cpusystem)) cpusystem, round(avg(cpuuser)) cpuuser, round(avg(cpuusagecores)) cpuusagecores,
+		round(avg(cputotalcores)) cputotalcores, round(avg(memoryusage)) memoryusage, round(avg(memoryusagebytes)) memoryusagebytes, round(avg(memorysizebytes)) memorysizebytes, 
+		round(avg(memoryswap)) memoryswap, round(avg(netiorate)) netiorate, round(avg(netioerrors)) netioerrors, round(avg(netreceiverate)) netreceiverate, round(avg(netreceiveerrors)) netreceiveerrors,
+		round(avg(nettransmitrate)) nettransmitrate, round(avg(nettransmiterrors)) nettransmiterrors, round(avg(fsiorate)) fsiorate, round(avg(fsreadrate)) fsreadrate, round(avg(fswriterate)) fswriterate,
+		round(avg(processes)) processes
+	FROM %s where ontunetime >= %d and ontunetime < %d 
+	GROUP BY nodeuid, metricid
+`
+
+const INSERT_AVG_POD_PERF = `
+	INSERT INTO %s 
+	SELECT poduid, %d ontunetime, nsuid, nodeuid, metricid, round(avg(cpuusage)), round(avg(cpusystem)), round(avg(cpuuser)), round(avg(cpuusagecores)),
+		round(avg(cpurequestcores)), round(avg(cpulimitcores)), round(avg(memoryusage)), round(avg(memoryusagebytes)), round(avg(memoryrequestbytes)),
+		round(avg(memorylimitbytes)), round(avg(memoryswap)), round(avg(netiorate)), round(avg(netioerrors)), round(avg(netreceiverate)), round(avg(netreceiveerrors)),
+		round(avg(nettransmitrate)), round(avg(nettransmiterrors)), round(avg(fsiorate)), round(avg(fsreadrate)), round(avg(fswriterate)), round(avg(processes))
+	FROM %s where ontunetime >= %d and ontunetime < %d 
+	GROUP BY poduid, nsuid, nodeuid, metricid
+`
+
+const INSERT_AVG_CONTAINER_PERF = `
+	INSERT INTO %s
+	SELECT containername, %d ontunetime, poduid, nsuid, nodeuid, metricid, round(avg(cpuusage)), round(avg(cpusystem)), round(avg(cpuuser)), round(avg(cpuusagecores)),
+		   round(avg(cpurequestcores)), round(avg(cpulimitcores)), round(avg(memoryusage)), round(avg(memoryusagebytes)), round(avg(memoryrequestbytes)),
+		   round(avg(memorylimitbytes)), round(avg(memoryswap)), round(avg(fsiorate)), round(avg(fsreadrate)), round(avg(fswriterate)), round(avg(processes))
+	FROM %s where ontunetime >= %d and ontunetime < %d 
+	GROUP BY containername, poduid, nsuid, nodeuid, metricid
+`
+
+const INSERT_AVG_NODE_NET_PERF = `
+	INSERT INTO %s
+	SELECT nodeuid, %d ontunetime, metricid, interfaceid, round(avg(iorate)) iorate, round(avg(ioerrors)) ioerrors, 
+		   round(avg(receiverate)) receiverate, round(avg(receiveerrors)) receiveerrors, round(avg(transmitrate)) transmitrate, round(avg(transmiterrors)) transmiterrors
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY nodeuid, metricid, interfaceid
+`
+
+const INSERT_AVG_POD_NET_PERF = `
+	INSERT INTO %s
+	SELECT poduid, %d ontunetime, nsuid, nodeuid, metricid, interfaceid, round(avg(iorate)) iorate, round(avg(ioerrors)) ioerrors,
+		   round(avg(receiverate)) receiverate, round(avg(receiveerrors)) receiveerrors, round(avg(transmitrate)) transmitrate, round(avg(transmiterrors)) transmiterrors
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY poduid, nsuid, nodeuid, metricid, interfaceid
+`
+
+const INSERT_AVG_NODE_FS_PERF = `
+	INSERT INTO %s
+	SELECT nodeuid, %d ontunetime, metricid, deviceid, round(avg(iorate)) iorate, round(avg(readrate)) readrate, round(avg(writerate)) writerate
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY nodeuid, metricid, deviceid
+`
+
+const INSERT_AVG_POD_FS_PERF = `
+	INSERT INTO %s
+	SELECT poduid, %d ontunetime, nsuid, nodeuid, metricid, deviceid, round(avg(iorate)) iorate, round(avg(readrate)) readrate, round(avg(writerate)) writerate
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY poduid, nsuid, nodeuid, metricid, deviceid
+`
+
+const INSERT_AVG_CONTAINER_FS_PERF = `
+	INSERT INTO %s
+	SELECT containername, %d ontunetime, poduid, nsuid, nodeuid, metricid, deviceid, round(avg(iorate)) iorate, round(avg(readrate)) readrate, round(avg(writerate)) writerate
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY containername, poduid, nsuid, nodeuid, metricid, deviceid
+`
+
+const INSERT_AVG_CLUSTER_PERF = `
+	INSERT INTO %s
+	SELECT clusterid, %d ontunetime, round(avg(podcount)) podcount, round(avg(cpuusage)) cpuusage, round(avg(cpusystem)) cpusystem, round(avg(cpuuser)) cpuuser, round(avg(cpuusagecores)) cpuusagecores,
+		round(avg(cputotalcores)) cputotalcores, round(avg(memoryusage)) memoryusage, round(avg(memoryusagebytes)) memoryusagebytes, round(avg(memorysizebytes)) memorysizebytes,
+		round(avg(memoryswap)) memoryswap, round(avg(netiorate)) netiorate, round(avg(netioerrors)) netioerrors, round(avg(netreceiverate)) netreceiverate, round(avg(netreceiveerrors)) netreceiveerrors,
+		round(avg(nettransmitrate)) nettransmitrate, round(avg(nettransmiterrors)) nettransmiterrors, round(avg(fsiorate)) fsiorate, round(avg(fsreadrate)) fsreadrate, round(avg(fswriterate)) fswriterate,
+		round(avg(processes)) processes
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY clusterid
+`
+
+const INSERT_AVG_NS_PERF = `
+	INSERT INTO %s
+	SELECT nsuid, %d ontunetime, round(avg(podcount)) podcount, round(avg(cpuusage)) cpuusage, round(avg(cpusystem)) cpusystem, round(avg(cpuuser)) cpuuser, round(avg(cpuusagecores)) cpuusagecores,
+		round(avg(cputotalcores)) cputotalcores, round(avg(memoryusage)) memoryusage, round(avg(memoryusagebytes)) memoryusagebytes, round(avg(memorysizebytes)) memorysizebytes,
+		round(avg(memoryswap)) memoryswap, round(avg(netiorate)) netiorate, round(avg(netioerrors)) netioerrors, round(avg(netreceiverate)) netreceiverate, round(avg(netreceiveerrors)) netreceiveerrors,
+		round(avg(nettransmitrate)) nettransmitrate, round(avg(nettransmiterrors)) nettransmiterrors, round(avg(fsiorate)) fsiorate, round(avg(fsreadrate)) fsreadrate, round(avg(fswriterate)) fswriterate,
+		round(avg(processes)) processes
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY nsuid
+`
+
+const INSERT_AVG_WORKLOAD_PERF = `
+	INSERT INTO %s
+	SELECT %s, %d ontunetime, round(avg(podcount)) podcount, round(avg(cpuusage)) cpuusage, round(avg(cpusystem)) cpusystem, round(avg(cpuuser)) cpuuser, round(avg(cpuusagecores)) cpuusagecores,
+		round(avg(cputotalcores)) cputotalcores, round(avg(memoryusage)) memoryusage, round(avg(memoryusagebytes)) memoryusagebytes, round(avg(memorysizebytes)) memorysizebytes,
+		round(avg(memoryswap)) memoryswap, round(avg(netiorate)) netiorate, round(avg(netioerrors)) netioerrors, round(avg(netreceiverate)) netreceiverate, round(avg(netreceiveerrors)) netreceiveerrors,
+		round(avg(nettransmitrate)) nettransmitrate, round(avg(nettransmiterrors)) nettransmiterrors, round(avg(fsiorate)) fsiorate, round(avg(fsreadrate)) fsreadrate, round(avg(fswriterate)) fswriterate,
+		round(avg(processes)) processes
+	FROM %s where ontunetime >= %d and ontunetime < %d
+	GROUP BY %s
+`
+
+const TRUNCATE_DATA = `
+	TRUNCATE %s
+`
+
 const DELETE_DATA = `
 	DELETE FROM %s WHERE nodeuid='%s' and ontunetime < %d
 `
 
 const DELETE_DATA_CONDITION = `
-DELETE FROM %s WHERE %s in (%s) and ontunetime < %d
+	DELETE FROM %s WHERE %s in (%s) and ontunetime < %d
+`
+
+const DELETE_DATA_CONDITION_REF = `
+	DELETE FROM %s WHERE %s in (select %s from %s where %s=%d and enabled=1 ) and ontunetime < %d
 `
 
 const INSERT_UNNEST_LAST_NODE_PERF_RAW = `
@@ -495,3 +614,504 @@ const INSERT_UNNEST_LAST_CONTAINER_PERF_RAW = `
 	INSERT INTO ` + TB_KUBE_LAST_CONTAINER_PERF_RAW + ` (containername, ontunetime, poduid, nsuid, nodeuid, metricid, cpuusagesecondstotal, cpusystemsecondstotal, cpuusersecondstotal, memoryusagebytes, memoryworkingsetbytes, memorycache, memoryswap, memoryrss, processes, timestampms)
 	(select * from  unnest($1::text[], $2::bigint[], $3::text[], $4::text[], $5::text[], $6::int[], $7::double precision[], $8::double precision[], $9::double precision[], $10::double precision[], $11::double precision[], $12::double precision[], $13::double precision[], $14::double precision[], $15::double precision[], $16::bigint[]))
 `
+
+const CREATE_TABLE_TABLE_INFO = `
+	CREATE TABLE IF NOT EXISTS  ` + TB_KUBE_TABLE_INFO + ` (
+		tablename     varchar(64) NOT NULL PRIMARY KEY,
+		version       integer NOT NULL,
+		createdtime   bigint NOT NULL,
+		updatetime    bigint NOT NULL,
+		durationmin   integer NULL
+	) `
+
+const CREATE_TABLE_MANAGER_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_MANAGER_INFO + ` (
+		managerid     serial NOT NULL PRIMARY KEY,
+		managername   text NOT NULL,
+		description   text NULL,
+		ip    		  text NOT NULL,
+		createdtime   bigint NOT NULL,
+		updatetime    bigint NOT NULL
+	)`
+
+const CREATE_TABLE_CLUSTER_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_CLUSTER_INFO + ` (
+		clusterid     serial NOT NULL PRIMARY KEY,
+		managerid     integer NOT NULL,
+		clustername   text NOT NULL,
+		context		  text NULL,
+		ip    		  text NOT NULL,
+		enabled		  integer NOT NULL DEFAULT 1,
+		status		  integer NOT NULL DEFAULT 1,
+		createdtime   bigint NOT NULL,
+		updatetime    bigint NOT NULL				
+	) `
+
+const CREATE_TABLE_RESOURCE_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_RESOURCE_INFO + ` (
+		resourceid    	serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		resourcename  	text NOT NULL,
+		apiclass   		text NOT NULL,
+		version    		text NOT NULL,
+		endpoint    	text NOT NULL,
+		enabled    		integer NOT NULL DEFAULT 1,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_NS_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_NS_INFO + ` (	
+		nsid    		  	serial NOT NULL PRIMARY KEY,
+		nsuid        		text NOT NULL,
+		clusterid     		integer NOT NULL,
+		nsname        		text NOT NULL,
+		starttime			bigint NOT NULL,
+		labels				text NULL,
+		status   		    text NULL,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   		bigint NOT NULL,
+		updatetime   		bigint NOT NULL
+	) `
+
+const CREATE_TABLE_NODE_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_NODE_INFO + ` (
+		nodeid    		  			serial NOT NULL PRIMARY KEY,
+		managerid     				integer NOT NULL,
+		clusterid     				integer NOT NULL,
+		nodeuid     				text NOT NULL,
+		nodename        			text NULL,
+		nodenameext        			text NULL,
+		nodetype        			text NULL,
+		enabled    					integer NOT NULL DEFAULT 1,
+		starttime    				bigint NOT NULL,
+		labels						text NULL,
+		kernelversion   			text NULL,
+		osimage 					text NULL,
+		osname 						text NULL,
+		containerruntimever 		text NULL,
+		kubeletver 					text NULL,
+		kubeproxyver 				text NULL,
+		cpuarch 					text NULL,
+		cpucount 					integer NULL,
+		ephemeralstorage   			bigint NOT NULL default 0,
+		memorysize   				bigint NOT NULL default 0,
+		pods   						bigint NOT NULL default 0,
+		ip 							text NULL,
+		status						integer NOT NULL default 0,
+		createdtime   				bigint NOT NULL,
+		updatetime   				bigint NOT NULL
+	) `
+
+const CREATE_TABLE_POD_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_POD_INFO + ` (
+		podid    		  		serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		uid     					text NOT NULL,
+		nodeuid     			text NOT NULL,
+		nsuid     				text NOT NULL,
+		annotationuid   	text NOT NULL,
+		podname        		text NULL,
+		starttime    			bigint NOT NULL,
+		labels				text NULL,
+		selector			text NULL,
+		restartpolicy   	text NULL,
+		serviceaccount 		text NULL,
+		status 						text NULL,
+		hostip 						text NULL,
+		podip 						text NULL,
+		restartcount 			bigint NOT NULL default 0,
+		restarttime 			bigint NOT NULL default 0,
+		podcondition 			text NULL,
+		staticpod   			text NULL,
+		refkind   				text NULL,
+		refuid   					text NULL,
+		pvcuid					text NULL,
+		enabled 					integer NULL DEFAULT 0,
+		createdtime   		bigint NOT NULL,
+		updatetime   			bigint NOT NULL
+	) `
+
+const CREATE_TABLE_CONTAINER_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_CONTAINER_INFO + ` (
+		containerid    		serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		poduid     			text NOT NULL,
+		containername     	text NOT NULL,
+		image   		    text NOT NULL,
+		ports   		    text NULL,
+		env   		    	text NULL,
+		limitcpu 			bigint null,
+		limitmemory			bigint null,
+		limitstorage		bigint null,
+		limitephemeral		bigint null,
+		reqcpu 				bigint null,
+		reqmemory			bigint null,
+		reqstorage			bigint null,
+		reqephemeral		bigint null,
+		volumemounts   		text NULL,
+		state               text NULL,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   		bigint NOT NULL,
+		updatetime   		bigint NOT NULL
+	) `
+
+const CREATE_TABLE_SVC_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_SVC_INFO + ` (
+		svcid     		serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     		text NOT NULL,
+		svcname   		text NOT NULL,
+		uid   				text NOT NULL,
+		starttime   	bigint NOT NULL,
+		labels			text NULL,
+		selector		text NULL,
+		servicetype   text NULL,
+		clusterip   	text NULL,
+		ports   			text NULL,
+		enabled    		integer NOT NULL DEFAULT 0,
+		createdtime   bigint NOT NULL,
+		updatetime    bigint NOT NULL
+	) `
+
+const CREATE_TABLE_PVC_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_PVC_INFO + ` (
+		pvcid     		serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     		text NOT NULL,
+		pvcname   		text NOT NULL,
+		uid   		text NOT NULL,
+		starttime   	bigint NOT NULL,
+		labels			text NULL,
+		selector		text NULL,
+		accessmodes  	text NULL,
+		reqstorage  	bigint NOT NULL default 0,
+		status   		text NULL,
+		scuid   			text NULL,
+		enabled    		integer NOT NULL DEFAULT 0,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_PV_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_PV_INFO + ` (
+		pvid     			serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		pvname   			text NOT NULL,
+		pvuid   			text NOT NULL,
+		pvcuid   			text NOT NULL,
+		starttime   		bigint NOT NULL,
+		labels			text NULL,
+		accessmodes   		text NULL,
+		capacity   			bigint NOT NULL default 0,
+		reclaimpolicy   	text NULL,
+		status   			text NULL,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   		bigint NOT NULL,
+		updatetime    		bigint NOT NULL
+	) `
+
+const CREATE_TABLE_EVENT_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_EVENT_INFO + ` (
+		eventid     			serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     				text NOT NULL,
+		eventname   			text NOT NULL,
+		uid   						text NOT NULL,
+		firsttime   			bigint NOT NULL,
+		lasttime   				bigint NOT NULL DEFAULT 0,
+		labels					text NULL,
+		eventtype  				text NOT NULL,
+		eventcount   			bigint NULL DEFAULT 0,
+		objkind  					text NOT NULL,
+		objuid   			text NOT NULL,
+		srccomponent   		text NOT NULL,
+		srchost   				text NOT NULL,
+		reason   					text NOT NULL,
+		message   				text NULL,
+		enabled    				integer NOT NULL DEFAULT 0,
+		createdtime   		bigint NOT NULL,
+		updatetime    		bigint NOT NULL
+	) `
+
+const CREATE_TABLE_LOG_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_LOG_INFO + ` (
+		logid   		serial NOT NULL PRIMARY KEY,
+		logtype     	text NOT NULL DEFAULT 'pod',
+		nsuid     		text NULL,
+		poduid			text NULL,
+		starttime   	bigint NOT NULL,
+		message   		text NULL,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_DEPLOY_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_DEPLOY_INFO + ` (
+		deployid     		serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     			text NOT NULL,
+		deployname   		text NOT NULL,
+		uid   					text NOT NULL,
+		starttime   		bigint NOT NULL,
+		labels			text NULL,
+		selector		text NULL,
+		serviceaccount  text NULL,
+		replicas   			bigint NULL DEFAULT 0,
+		updatedrs   		bigint NULL DEFAULT 0,
+		readyrs   			bigint NULL DEFAULT 0,
+		availablers   	bigint NULL DEFAULT 0,
+		observedgen   	bigint NULL DEFAULT 0,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_STS_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_STS_INFO + ` (
+		stsid     			serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     			text NOT NULL,
+		stsname   			text NOT NULL,
+		uid   					text NOT NULL,
+		starttime   		bigint NOT NULL,
+		labels			text NULL,
+		selector		text NULL,
+		serviceaccount  text NULL,
+		replicas   			bigint NULL DEFAULT 0,
+		updatedrs   		bigint NULL DEFAULT 0,
+		readyrs   			bigint NULL DEFAULT 0,
+		availablers   	bigint NULL DEFAULT 0,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_DS_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_DS_INFO + ` (
+		dsid     				serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     			text NOT NULL,
+		dsname   				text NOT NULL,
+		uid   					text NOT NULL,
+		starttime   		bigint NOT NULL,
+		labels			text NULL,
+		selector		text NULL,
+		serviceaccount  text NULL,
+		current   			bigint NULL DEFAULT 0,
+		desired   			bigint NULL DEFAULT 0,
+		ready   				bigint NULL DEFAULT 0,
+		updated   			bigint NULL DEFAULT 0,
+		available   		bigint NULL DEFAULT 0,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_RS_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_RS_INFO + ` (
+		rsid     				serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     			text NOT NULL,
+		rsname   				text NOT NULL,
+		uid   					text NOT NULL,
+		starttime   		bigint NOT NULL,
+		labels			text NULL,
+		selector		text NULL,
+		replicas  			bigint NULL DEFAULT 0,
+		fullylabeledrs  bigint NULL DEFAULT 0,
+		readyrs   			bigint NULL DEFAULT 0,
+		availablers   	bigint NULL DEFAULT 0,
+		observedgen   	bigint NULL DEFAULT 0,
+		refkind   			text NULL,
+		refuid   				text NULL,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   	bigint NOT NULL,
+		updatetime    	bigint NOT NULL
+	) `
+const CREATE_TABLE_ING_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_ING_INFO + ` (
+		ingid     		serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		nsuid     		text NOT NULL,
+		ingname   		text NOT NULL,
+		uid   				text NOT NULL,
+		starttime   	bigint NOT NULL,
+		labels				text NULL,
+		classname   	text NULL,
+		enabled    		integer NOT NULL DEFAULT 0,
+		createdtime   bigint NOT NULL,
+		updatetime    bigint NOT NULL
+	) `
+
+const CREATE_TABLE_INGHOST_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_INGHOST_INFO + ` (
+		inghostid     serial NOT NULL PRIMARY KEY,
+		clusterid     	integer NOT NULL,
+		inguid     		text NOT NULL,
+		backendtype   text NOT NULL,
+		backendname   text NULL,
+		hostname   		text NOT NULL DEFAULT '*',
+		pathtype   		text NULL,
+		path   				text NULL,
+		serviceport   integer NULL,
+		rscapigroup   text NULL,
+		rsckind   		text NULL,
+		enabled    		integer NOT NULL DEFAULT 0,
+		createdtime   bigint NOT NULL,
+		updatetime    bigint NOT NULL
+	) `
+
+const CREATE_TABLE_SC_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_SC_INFO + ` (
+		scid    		  	serial NOT NULL PRIMARY KEY,
+		clusterid     		integer NOT NULL,
+		scname        		text NOT NULL,
+		uid   		    	text NOT NULL,
+		starttime    		bigint NOT NULL,
+		labels				text NULL,
+		provisioner   		text NULL,
+		reclaimpolicy 		text NULL,
+		volumebindingmode 	text NULL,
+		allowvolumeexp 		integer NULL,
+		enabled    			integer NOT NULL DEFAULT 0,
+		createdtime   		bigint NOT NULL,
+		updatetime   		bigint NOT NULL
+	) `
+
+const CREATE_TABLE_FS_DEVICE_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_FS_DEVICE_INFO + ` (
+		deviceid      serial NOT NULL PRIMARY KEY,
+		devicename    text NOT NULL,
+		createdtime   bigint NOT NULL,
+		updatetime   	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_NET_INTERFACE_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_NET_INTERFACE_INFO + ` (
+		interfaceid      serial NOT NULL PRIMARY KEY,
+		interfacename    text NOT NULL,
+		createdtime   bigint NOT NULL,
+		updatetime   	bigint NOT NULL
+	) `
+
+const CREATE_TABLE_METRIC_ID_INFO = `
+	CREATE TABLE IF NOT EXISTS ` + TB_KUBE_METRIC_ID_INFO + ` (
+		metricid      serial NOT NULL PRIMARY KEY,
+		metricname    text NOT NULL,
+		image		  text NOT NULL,
+		createdtime   bigint NOT NULL,
+		updatetime   	bigint NOT NULL
+	) `
+
+const CREATE_VIEW_ING_INFO = `
+	create or replace view ` + TB_KUBE_ING_INFO_V + ` as
+		select *,
+		coalesce((select sum(svcv.pods) 
+		   from ` + TB_KUBE_INGHOST_INFO + ` ih,
+		   ` + TB_KUBE_SVC_INFO_V + ` svcv
+		  where ih.inguid=ing.uid 
+			and ih.backendtype='service'
+			and svcv.svcname = ih.backendname),0) pods,
+		coalesce((select sum(svcv.available_pods) 
+		   from ` + TB_KUBE_INGHOST_INFO + ` ih,
+		   ` + TB_KUBE_SVC_INFO_V + ` svcv
+		  where ih.inguid=ing.uid 
+			and ih.backendtype='service'
+			and svcv.svcname = ih.backendname),0) available_pods
+		from ` + TB_KUBE_ING_INFO + ` ing`
+
+const CREATE_VIEW_INGPOD_INFO = `
+	create or replace view ` + TB_KUBE_INGPOD_INFO_V + ` as
+		SELECT ing.ingid,ing.clusterid,ing.nsuid,ing.ingname,ing.uid inguid,ing.enabled,
+				ih.backendtype, ih.backendname, ih.hostname, ih.pathtype, ih.path, ih.serviceport,
+				svcpod.svcid, svcpod.svcname, svcpod.svcuid, svcpod.selector, svcpod.podid, svcpod.poduid, svcpod.podname
+		FROM ` + TB_KUBE_ING_INFO + ` ing, ` + TB_KUBE_INGHOST_INFO + ` ih, ` + TB_KUBE_SVCPOD_INFO_V + ` svcpod
+		where ing.enabled =1
+			and svcpod.enabled=1
+			and ing.nsuid =svcpod.nsuid
+			and ing.clusterid =svcpod.clusterid
+			and ih.inguid = ing.uid 
+			and ih.backendtype ='service'
+			and svcpod.svcname = ih.backendname`
+
+const CREATE_VIEW_SVC_INFO = `
+	create or replace view ` + TB_KUBE_SVC_INFO_V + ` as
+		select *,
+		coalesce((select count(*) from (select nsuid, string_to_array(labels,',') as label_arr from ` + TB_KUBE_POD_INFO + ` where enabled=1) pod
+			where pod.nsuid=svc.nsuid
+			  and pod.label_arr@>string_to_array(svc.selector,',')
+			  and array_length(string_to_array(svc.selector,','),1)>0),0) pods,
+		coalesce((select count(*) from (select nsuid, string_to_array(labels,',') as label_arr from ` + TB_KUBE_POD_INFO + ` where enabled=1 and status='Running') pod
+			where pod.nsuid=svc.nsuid
+			  and pod.label_arr@>string_to_array(svc.selector,',')
+			  and array_length(string_to_array(svc.selector,','),1)>0),0) available_pods
+		from ` + TB_KUBE_SVC_INFO + ` svc
+		where enabled=1`
+
+const CREATE_VIEW_SVCPOD_INFO = `
+	create or replace view ` + TB_KUBE_SVCPOD_INFO_V + ` as
+		SELECT svc.svcid,svc.clusterid,svc.nsuid,
+				svc.svcname,svc.uid svcuid, svc.selector,svc.enabled, pod.podid, pod.uid poduid, pod.podname, pod.labels 
+			FROM ` + TB_KUBE_SVC_INFO + ` svc, ` + TB_KUBE_POD_INFO + ` pod
+			WHERE svc.enabled = 1
+				and pod.enabled = 1
+				and svc.nsuid = pod.nsuid 
+				and svc.clusterid =pod.clusterid 
+				and string_to_array(pod.labels,','::text) @> string_to_array(svc.selector,','::text)  
+				and array_length(string_to_array(svc.selector, ','::text), 1) > 0;`
+
+const CREATE_TABLE_BASIC_RAW = `
+	CREATE TABLE IF NOT EXISTS %s (
+		%s
+		%s
+		%s
+		%s
+		%s
+		timestampms   			bigint NOT NULL
+	)`
+
+const CREATE_TABLE_FOUR_PARAMS_RAW = `
+	CREATE TABLE IF NOT EXISTS %s (
+		%s
+		%s
+		%s
+		%s
+		timestampms   			bigint NOT NULL
+	)`
+
+const CREATE_TABLE_TWO_PARAMS_RAW = `
+	CREATE TABLE IF NOT EXISTS %s (
+		%s
+		%s
+		timestampms   			bigint NOT NULL
+	)`
+
+const CREATE_TABLE_BASIC_PERF = `
+	CREATE TABLE IF NOT EXISTS %s (
+		%s
+		%s
+		%s
+		%s
+		%s
+		%s
+		%s
+		%s
+	) `
+
+const CREATE_TABLE_CONTAINER_PERF = `
+	CREATE TABLE IF NOT EXISTS %s (
+		%s
+		%s
+		%s
+		%s
+		%s
+		%s
+		%s
+	) `
+
+const CREATE_TABLE_DETAILS_PERF = `
+	CREATE TABLE IF NOT EXISTS %s (
+		%s
+		%s
+	) `

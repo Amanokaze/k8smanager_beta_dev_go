@@ -14,62 +14,68 @@ func ResourceReceive() {
 		info_msg := <-common.ChannelResourceData
 		_, biastime = GetOntuneTime()
 		if val, ok := info_msg["resourceinfo"]; ok {
-			writeLog("this data is resource info!!")
+			common.LogManager.Debug("this data is resource info!!")
 			var data map[string]interface{}
 			setResourceinfo(val, data)
-			writeLog("resource info End")
-		} else if val, ok := info_msg["namespaceinfo"]; ok {
-			writeLog("this data is namespace info!!")
+			common.LogManager.Debug("resource info End")
+		} else if val, ok := info_msg[METRIC_VAR_NAMESPACE]; ok {
+			common.LogManager.Debug("this data is namespace info!!")
 			setNamespaceinfo(val)
-			writeLog("namespace info End")
-		} else if val, ok := info_msg["nodeinfo"]; ok {
-			writeLog("this data is node info!!")
+			common.LogManager.Debug("namespace info End")
+		} else if val, ok := info_msg[METRIC_VAR_NODE]; ok {
+			common.LogManager.Debug("this data is node info!!")
 			setNodeinfo(val)
-			writeLog("node info End")
-		} else if val, ok := info_msg["podsinfo"]; ok {
-			writeLog("this data is pods info!!")
+			common.LogManager.Debug("node info End")
+		} else if val, ok := info_msg[METRIC_VAR_POD]; ok {
+			common.LogManager.Debug("this data is pods info!!")
 			PodContainerinfo := setPodsinfo(val)
-			setContainerinfo(PodContainerinfo)
-			writeLog("pods info End")
-		} else if val, ok := info_msg["serviceinfo"]; ok {
-			writeLog("this data is service info!!")
+
+			if len(PodContainerinfo) > 0 {
+				setContainerinfo(PodContainerinfo)
+			}
+			common.LogManager.Debug("pods info End")
+		} else if val, ok := info_msg["service"]; ok {
+			common.LogManager.Debug("this data is service info!!")
 			setServiceinfo(val)
-			writeLog("service info End")
-		} else if val, ok := info_msg["pvcinfo"]; ok {
-			writeLog("this data is pvc info!!")
+			common.LogManager.Debug("service info End")
+		} else if val, ok := info_msg["pvc"]; ok {
+			common.LogManager.Debug("this data is pvc info!!")
 			setPvcinfo(val)
-			writeLog("pvc info End")
-		} else if val, ok := info_msg["pvinfo"]; ok {
-			writeLog("this data is pv info!!")
+			common.LogManager.Debug("pvc info End")
+		} else if val, ok := info_msg["pv"]; ok {
+			common.LogManager.Debug("this data is pv info!!")
 			setPvinfo(val)
-			writeLog("pv info End")
-		} else if val, ok := info_msg["deployinfo"]; ok {
-			writeLog("this data is deploy info!!")
+			common.LogManager.Debug("pv info End")
+		} else if val, ok := info_msg[METRIC_VAR_DEPLOYMENT]; ok {
+			common.LogManager.Debug("this data is deploy info!!")
 			setDeployinfo(val)
-			writeLog("deploy info End")
-		} else if val, ok := info_msg["statefulset"]; ok {
-			writeLog("this data is statefulset info!!")
+			common.LogManager.Debug("deploy info End")
+		} else if val, ok := info_msg[METRIC_VAR_STATEFULSET]; ok {
+			common.LogManager.Debug("this data is statefulset info!!")
 			setStatefulSetinfo(val)
-			writeLog("statefulset info End")
-		} else if val, ok := info_msg["daemonset"]; ok {
-			writeLog("this data is daemonset info!!")
+			common.LogManager.Debug("statefulset info End")
+		} else if val, ok := info_msg[METRIC_VAR_DAEMONSET]; ok {
+			common.LogManager.Debug("this data is daemonset info!!")
 			setDaemonSetinfo(val)
-			writeLog("daemonset info End")
-		} else if val, ok := info_msg["replicaset"]; ok {
-			writeLog("this data is replicaset info!!")
+			common.LogManager.Debug("daemonset info End")
+		} else if val, ok := info_msg[METRIC_VAR_REPLICASET]; ok {
+			common.LogManager.Debug("this data is replicaset info!!")
 			setReplicaSetinfo(val)
-			writeLog("replicaset info End")
+			common.LogManager.Debug("replicaset info End")
 		} else if val, ok := info_msg["sc"]; ok {
-			writeLog("this data is sc info!!")
+			common.LogManager.Debug("this data is sc info!!")
 			setStorageclassinfo(val)
-			writeLog("sc info End")
-		} else if val, ok := info_msg["ingress_info"]; ok {
-			writeLog("this data is ingress info!!")
+			common.LogManager.Debug("sc info End")
+		} else if val, ok := info_msg["ingress"]; ok {
+			common.LogManager.Debug("this data is ingress info!!")
 			ingressHostinfo := setIngressinfo(val)
-			setIngressHostinfo(ingressHostinfo)
-			writeLog("ingress info End")
+
+			if len(ingressHostinfo) > 0 {
+				setIngressHostinfo(ingressHostinfo)
+			}
+			common.LogManager.Debug("ingress info End")
 		} else {
-			writeLog("no data??")
+			common.LogManager.Debug("no data??")
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
@@ -79,7 +85,9 @@ func setResourceinfo(info_msg []byte, data map[string]interface{}) {
 	var Arr_rcs Resourceinfo
 
 	err := json.Unmarshal([]byte(info_msg), &data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for k2 := range data {
 		rcs_map := data[k2].(map[string]interface{})
@@ -118,12 +126,14 @@ func setNamespaceinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, resource_data.UID)
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, resource_data.UID)
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrNsname = append(ArrResource.ArrNsname, resource_data.Name)
 		ArrResource.ArrStarttime = append(ArrResource.ArrStarttime, getStarttime(resource_data.StartTime.Unix(), biastime))
@@ -136,7 +146,7 @@ func setNamespaceinfo(info_msg []byte) {
 		resource_data.StartTime = time.Unix(getStarttime(resource_data.StartTime.Unix(), biastime), 0)
 		tempNamespaceInfo[resource_data.UID] = resource_data // 신규로 들어온 데이터의 맵
 
-		ns_map, _ := common.ResourceMap.Load("namespace")
+		ns_map, _ := common.ResourceMap.Load(METRIC_VAR_NAMESPACE)
 		ns_label_map, _ := common.ResourceMap.Load("namespace_label")
 
 		ns_key := fmt.Sprintf("%s/%s", resource_data.Host, resource_data.Name)
@@ -176,7 +186,9 @@ func setNodeinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
@@ -209,7 +221,7 @@ func setNodeinfo(info_msg []byte) {
 		resource_data.StartTime = time.Unix(getStarttime(resource_data.StartTime.Unix(), biastime), 0)
 		tempNodeInfo[resource_data.UID] = resource_data // 신규로 들어온 데이터의 맵
 
-		node_map, _ := common.ResourceMap.Load("node")
+		node_map, _ := common.ResourceMap.Load(METRIC_VAR_NODE)
 		node_cpu_map, _ := common.ResourceMap.Load("node_cpu")
 		node_memory_map, _ := common.ResourceMap.Load("node_memory")
 		node_cluster_map, _ := common.ResourceMap.Load("node_cluster")
@@ -253,7 +265,9 @@ func setPodsinfo(info_msg []byte) map[string][]kubeapi.MappingContainer {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return PodContainerinfo
+	}
 
 	var ArrResource Podinfo
 	for _, resource_data := range map_data {
@@ -261,8 +275,8 @@ func setPodsinfo(info_msg []byte) map[string][]kubeapi.MappingContainer {
 
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
-		ArrResource.ArrNodeUid = append(ArrResource.ArrNodeUid, getUID("node", resource_data.Host, resource_data.NodeName))       // name 갖고 UID를 가져와야 함
-		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID("namespace", resource_data.Host, resource_data.NamespaceName)) // name 갖고 UID를 가져와야 함
+		ArrResource.ArrNodeUid = append(ArrResource.ArrNodeUid, getUID(METRIC_VAR_NODE, resource_data.Host, resource_data.NodeName))       // name 갖고 UID를 가져와야 함
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName)) // name 갖고 UID를 가져와야 함
 		ArrResource.ArrAnnotationuid = append(ArrResource.ArrAnnotationuid, resource_data.AnnotationUID)
 		ArrResource.ArrPodname = append(ArrResource.ArrPodname, resource_data.Name)
 		ArrResource.ArrStarttime = append(ArrResource.ArrStarttime, getStarttime(resource_data.StartTime.Unix(), biastime))
@@ -294,7 +308,7 @@ func setPodsinfo(info_msg []byte) map[string][]kubeapi.MappingContainer {
 		resource_data.StartTime = time.Unix(getStarttime(resource_data.StartTime.Unix(), biastime), 0)
 		tempPodInfo[resource_data.UID] = resource_data // 신규로 들어온 데이터의 맵
 
-		pod_map, _ := common.ResourceMap.Load("pod")
+		pod_map, _ := common.ResourceMap.Load(METRIC_VAR_POD)
 		pod_status_map, _ := common.ResourceMap.Load("pod_status")
 		pod_label_map, _ := common.ResourceMap.Load("pod_label")
 		pod_reference_map, _ := common.ResourceMap.Load("pod_reference")
@@ -413,12 +427,14 @@ func setServiceinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrSvcname = append(ArrResource.ArrSvcname, resource_data.Name)
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
@@ -476,12 +492,14 @@ func setPvcinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrPvcname = append(ArrResource.ArrPvcname, resource_data.Name)
 		ArrResource.ArrPvcUid = append(ArrResource.ArrPvcUid, resource_data.UID)
@@ -539,7 +557,9 @@ func setPvinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
@@ -599,12 +619,14 @@ func setDeployinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrDeployname = append(ArrResource.ArrDeployname, resource_data.Name)
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
@@ -666,12 +688,14 @@ func setStatefulSetinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrStsname = append(ArrResource.ArrStsname, resource_data.Name)
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
@@ -705,9 +729,9 @@ func setStatefulSetinfo(info_msg []byte) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		mapStatefulInfo := apiresource.statefulset
+		mapStatefulSetInfo := apiresource.statefulset
 
-		if len(mapStatefulInfo) > 0 {
+		if len(mapStatefulSetInfo) > 0 {
 			i_data = tempStatefulSetInfo
 			map_info["stateful_update"] = i_data
 			ChannelResourceInsert <- map_info
@@ -716,9 +740,9 @@ func setStatefulSetinfo(info_msg []byte) {
 			map_info["stateful_insert"] = i_data
 			ChannelResourceInsert <- map_info
 
-			if len(mapStatefulInfo) == 0 {
+			if len(mapStatefulSetInfo) == 0 {
 				for _, resource_data := range map_data {
-					mapStatefulInfo[resource_data.UID] = resource_data
+					mapStatefulSetInfo[resource_data.UID] = resource_data
 				}
 			}
 		}
@@ -732,12 +756,14 @@ func setDaemonSetinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrDsname = append(ArrResource.ArrDsname, resource_data.Name)
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
@@ -757,7 +783,7 @@ func setDaemonSetinfo(info_msg []byte) {
 		resource_data.StartTime = time.Unix(getStarttime(resource_data.StartTime.Unix(), biastime), 0)
 		tempDaemonSetInfo[resource_data.UID] = resource_data // 신규로 들어온 데이터의 맵
 
-		ds_map, _ := common.ResourceMap.Load("daemonset")
+		ds_map, _ := common.ResourceMap.Load(METRIC_VAR_DAEMONSET)
 		ds_label_map, _ := common.ResourceMap.Load("daemonset_label")
 		ds_selector_map, _ := common.ResourceMap.Load("daemonset_selector")
 
@@ -799,12 +825,14 @@ func setReplicaSetinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
-		ArrResource.ArrNsuid = append(ArrResource.ArrNsuid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
 		ArrResource.ArrRsname = append(ArrResource.ArrRsname, resource_data.Name)
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
@@ -871,14 +899,16 @@ func setIngressinfo(info_msg []byte) map[string][]kubeapi.MappingIngressHost {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return ingress_host_info
+	}
 
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
 		ArrResource.ArrUid = append(ArrResource.ArrUid, resource_data.UID)
 		ArrResource.ArrClusterid = append(ArrResource.ArrClusterid, common.ClusterID[resource_data.Host])
-		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID("namespace", resource_data.Host, resource_data.NamespaceName))
+		ArrResource.ArrNsUid = append(ArrResource.ArrNsUid, getUID(METRIC_VAR_NAMESPACE, resource_data.Host, resource_data.NamespaceName))
 		ArrResource.ArrName = append(ArrResource.ArrName, resource_data.Name)
 		ArrResource.ArrStarttime = append(ArrResource.ArrStarttime, getStarttime(resource_data.StartTime.Unix(), biastime))
 		ArrResource.ArrLabels = append(ArrResource.ArrLabels, resource_data.Labels)
@@ -906,9 +936,9 @@ func setIngressinfo(info_msg []byte) map[string][]kubeapi.MappingIngressHost {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		mapIngInfo := apiresource.ingress
+		mapIngressInfo := apiresource.ingress
 
-		if len(mapIngInfo) > 0 {
+		if len(mapIngressInfo) > 0 {
 			i_data = tempIngressInfo
 			map_info["ing_update"] = i_data
 			ChannelResourceInsert <- map_info
@@ -916,9 +946,9 @@ func setIngressinfo(info_msg []byte) map[string][]kubeapi.MappingIngressHost {
 			i_data = ArrResource
 			map_info["ing_insert"] = i_data
 			ChannelResourceInsert <- map_info
-			if len(mapIngInfo) == 0 {
+			if len(mapIngressInfo) == 0 {
 				for _, resource_data := range map_data {
-					mapIngInfo[resource_data.UID] = resource_data
+					mapIngressInfo[resource_data.UID] = resource_data
 				}
 			}
 		}
@@ -959,9 +989,9 @@ func setIngressHostinfo(info_msg map[string][]kubeapi.MappingIngressHost) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		mapIngHostInfo := apiresource.ingresshost
+		mapIngressHostInfo := apiresource.ingresshost
 
-		if len(mapIngHostInfo) > 0 {
+		if len(mapIngressHostInfo) > 0 {
 			i_data = tempIngHostInfo
 			map_info["inghost_update"] = i_data
 			ChannelResourceInsert <- map_info
@@ -970,10 +1000,10 @@ func setIngressHostinfo(info_msg map[string][]kubeapi.MappingIngressHost) {
 			map_info["inghost_insert"] = i_data
 			ChannelResourceInsert <- map_info
 
-			if len(mapIngHostInfo) == 0 {
+			if len(mapIngressHostInfo) == 0 {
 				for _, resource_data := range info_msg {
 					for _, con_data := range resource_data {
-						mapIngHostInfo[con_data.Hostname] = con_data
+						mapIngressHostInfo[con_data.Hostname] = con_data
 					}
 				}
 			}
@@ -988,7 +1018,9 @@ func setStorageclassinfo(info_msg []byte) {
 	var host string
 
 	err := json.Unmarshal([]byte(info_msg), &map_data)
-	errorCheck(err)
+	if !errorCheck(err) {
+		return
+	}
 	for _, resource_data := range map_data {
 		host = resource_data.Host
 
@@ -1026,9 +1058,9 @@ func setStorageclassinfo(info_msg []byte) {
 
 	if ar, ok := mapApiResource.Load(host); ok {
 		apiresource := ar.(*ApiResource)
-		mapScInfo := apiresource.storageclass
+		mapStorageClassInfo := apiresource.storageclass
 
-		if len(mapScInfo) > 0 {
+		if len(mapStorageClassInfo) > 0 {
 			i_data = tempScInfo
 			map_info["sc_update"] = i_data
 			ChannelResourceInsert <- map_info
@@ -1037,9 +1069,9 @@ func setStorageclassinfo(info_msg []byte) {
 			map_info["sc_insert"] = i_data
 			ChannelResourceInsert <- map_info
 
-			if len(mapScInfo) == 0 {
+			if len(mapStorageClassInfo) == 0 {
 				for _, resource_data := range map_data {
-					mapScInfo[resource_data.UID] = resource_data
+					mapStorageClassInfo[resource_data.UID] = resource_data
 				}
 			}
 		}

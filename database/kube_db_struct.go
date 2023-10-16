@@ -74,7 +74,7 @@ func (s *Scinfo) GetArgs() []interface{} {
 
 type Namespaceinfo struct {
 	ArrNsid       []int
-	ArrNsuid      []string
+	ArrNsUid      []string
 	ArrClusterid  []int
 	ArrNsname     []string
 	ArrStarttime  []int64
@@ -87,7 +87,7 @@ type Namespaceinfo struct {
 
 func (s *Namespaceinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.Array(s.ArrClusterid))
 	data = append(data, pq.StringArray(s.ArrNsname))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -267,7 +267,7 @@ func (s *Containerinfo) GetArgs() []interface{} {
 type Serviceinfo struct {
 	ArrSvcid       []int
 	ArrClusterid   []int
-	ArrNsuid       []string
+	ArrNsUid       []string
 	ArrSvcname     []string
 	ArrUid         []string
 	ArrStarttime   []int64
@@ -284,7 +284,7 @@ type Serviceinfo struct {
 func (s *Serviceinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.Array(s.ArrClusterid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrSvcname))
 	data = append(data, pq.StringArray(s.ArrUid))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -303,7 +303,7 @@ func (s *Serviceinfo) GetArgs() []interface{} {
 type Deployinfo struct {
 	ArrDeployid       []int
 	ArrClusterid      []int
-	ArrNsuid          []string
+	ArrNsUid          []string
 	ArrDeployname     []string
 	ArrUid            []string
 	ArrStarttime      []int64
@@ -323,7 +323,7 @@ type Deployinfo struct {
 func (s *Deployinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.Array(s.ArrClusterid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrDeployname))
 	data = append(data, pq.StringArray(s.ArrUid))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -345,7 +345,7 @@ func (s *Deployinfo) GetArgs() []interface{} {
 type StateFulSetinfo struct {
 	ArrDeployid       []int
 	ArrClusterid      []int
-	ArrNsuid          []string
+	ArrNsUid          []string
 	ArrStsname        []string
 	ArrUid            []string
 	ArrStarttime      []int64
@@ -364,7 +364,7 @@ type StateFulSetinfo struct {
 func (s *StateFulSetinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.Array(s.ArrClusterid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrStsname))
 	data = append(data, pq.StringArray(s.ArrUid))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -385,7 +385,7 @@ func (s *StateFulSetinfo) GetArgs() []interface{} {
 type DaemonSetinfo struct {
 	ArrDsid           []int
 	ArrClusterid      []int
-	ArrNsuid          []string
+	ArrNsUid          []string
 	ArrDsname         []string
 	ArrUid            []string
 	ArrStarttime      []int64
@@ -405,7 +405,7 @@ type DaemonSetinfo struct {
 func (s *DaemonSetinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.Array(s.ArrClusterid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrDsname))
 	data = append(data, pq.StringArray(s.ArrUid))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -427,7 +427,7 @@ func (s *DaemonSetinfo) GetArgs() []interface{} {
 type ReplicaSetinfo struct {
 	ArrRsid          []int
 	ArrClusterid     []int
-	ArrNsuid         []string
+	ArrNsUid         []string
 	ArrRsname        []string
 	ArrUid           []string
 	ArrStarttime     []int64
@@ -448,7 +448,7 @@ type ReplicaSetinfo struct {
 func (s *ReplicaSetinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.Array(s.ArrClusterid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrRsname))
 	data = append(data, pq.StringArray(s.ArrUid))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -471,7 +471,7 @@ func (s *ReplicaSetinfo) GetArgs() []interface{} {
 type Pvcinfo struct {
 	ArrPvcid       []int
 	ArrClusterid   []int
-	ArrNsuid       []string
+	ArrNsUid       []string
 	ArrPvcname     []string
 	ArrPvcUid      []string
 	ArrStarttime   []int64
@@ -489,7 +489,7 @@ type Pvcinfo struct {
 func (s *Pvcinfo) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.Array(s.ArrClusterid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrPvcname))
 	data = append(data, pq.StringArray(s.ArrPvcUid))
 	data = append(data, pq.Int64Array(s.ArrStarttime))
@@ -728,7 +728,7 @@ func (s *NodePerf) GetArgs() []interface{} {
 type PodPerf struct {
 	ArrPoduid                []string
 	ArrOntunetime            []int64
-	ArrNsuid                 []string
+	ArrNsUid                 []string
 	ArrNodeuid               []string
 	ArrMetricid              []int
 	ArrCpuusagesecondstotal  []float64
@@ -747,7 +747,7 @@ func (s *PodPerf) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.StringArray(s.ArrPoduid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrCpuusagesecondstotal))
@@ -768,7 +768,7 @@ type ContainerPerf struct {
 	ArrContainername         []string
 	ArrOntunetime            []int64
 	ArrPoduid                []string
-	ArrNsuid                 []string
+	ArrNsUid                 []string
 	ArrNodeuid               []string
 	ArrMetricid              []int
 	ArrCpuusagesecondstotal  []float64
@@ -788,7 +788,7 @@ func (s *ContainerPerf) GetArgs() []interface{} {
 	data = append(data, pq.StringArray(s.ArrContainername))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
 	data = append(data, pq.StringArray(s.ArrPoduid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrCpuusagesecondstotal))
@@ -835,7 +835,7 @@ func (s *NodeNetPerf) GetArgs() []interface{} {
 type PodNetPerf struct {
 	ArrPoduid                     []string
 	ArrOntunetime                 []int64
-	ArrNsuid                      []string
+	ArrNsUid                      []string
 	ArrNodeuid                    []string
 	ArrMetricid                   []int
 	ArrInterfaceid                []int
@@ -850,7 +850,7 @@ func (s *PodNetPerf) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.StringArray(s.ArrPoduid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrInterfaceid))
@@ -897,7 +897,7 @@ func (s *NodeFsPerf) GetArgs() []interface{} {
 type PodFsPerf struct {
 	ArrPoduid             []string
 	ArrOntunetime         []int64
-	ArrNsuid              []string
+	ArrNsUid              []string
 	ArrNodeuid            []string
 	ArrMetricid           []int
 	ArrDeviceid           []int
@@ -910,7 +910,7 @@ func (s *PodFsPerf) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.StringArray(s.ArrPoduid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrDeviceid))
@@ -925,7 +925,7 @@ type ContainerFsPerf struct {
 	ArrContainername      []string
 	ArrOntunetime         []int64
 	ArrPoduid             []string
-	ArrNsuid              []string
+	ArrNsUid              []string
 	ArrNodeuid            []string
 	ArrMetricid           []int
 	ArrDeviceid           []int
@@ -939,7 +939,7 @@ func (s *ContainerFsPerf) GetArgs() []interface{} {
 	data = append(data, pq.StringArray(s.ArrContainername))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
 	data = append(data, pq.StringArray(s.ArrPoduid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrDeviceid))
@@ -954,7 +954,7 @@ type PodSummaryPerf struct {
 	ArrPoduid                []string
 	ArrOntunetime            []int64
 	ArrTimestampMs           []int64
-	ArrNsuid                 []string
+	ArrNsUid                 []string
 	ArrNodeuid               []string
 	ArrMetricid              []int
 	ArrCpuusagesecondstotal  []float64
@@ -992,7 +992,7 @@ func (s *NodeNetPerf) GetSummaryMap() *sync.Map {
 func (s *PodNetPerf) GetSummaryMap() *sync.Map {
 	stat_map := &sync.Map{}
 	stat_map.Store("poduid", s.ArrPoduid)
-	stat_map.Store("nsuid", s.ArrNsuid)
+	stat_map.Store("nsuid", s.ArrNsUid)
 	stat_map.Store("rbt", s.ArrNetworkreceivebytestotal)
 	stat_map.Store("rbe", s.ArrNetworkreceiveerrorstotal)
 	stat_map.Store("tbt", s.ArrNetworktransmitbytestotal)
@@ -1013,7 +1013,7 @@ func (s *NodeFsPerf) GetSummaryMap() *sync.Map {
 func (s *PodFsPerf) GetSummaryMap() *sync.Map {
 	stat_map := &sync.Map{}
 	stat_map.Store("poduid", s.ArrPoduid)
-	stat_map.Store("nsuid", s.ArrNsuid)
+	stat_map.Store("nsuid", s.ArrNsUid)
 	stat_map.Store("rbt", s.ArrFsreadsbytestotal)
 	stat_map.Store("wbt", s.ArrFswritesbytestotal)
 
@@ -1111,7 +1111,7 @@ func (s *NodePerfStat) Init() {
 type PodPerfStat struct {
 	ArrPoduid                []string
 	ArrOntunetime            []int64
-	ArrNsuid                 []string
+	ArrNsUid                 []string
 	ArrNodeuid               []string
 	ArrMetricid              []int
 	ArrCpuusage              []float64
@@ -1141,7 +1141,7 @@ func (s *PodPerfStat) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.StringArray(s.ArrPoduid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Float64Array(s.ArrCpuusage))
@@ -1172,7 +1172,7 @@ func (s *PodPerfStat) GetArgs() []interface{} {
 func (s *PodPerfStat) Init() {
 	s.ArrPoduid = make([]string, 0)
 	s.ArrOntunetime = make([]int64, 0)
-	s.ArrNsuid = make([]string, 0)
+	s.ArrNsUid = make([]string, 0)
 	s.ArrNodeuid = make([]string, 0)
 	s.ArrMetricid = make([]int, 0)
 	s.ArrCpuusage = make([]float64, 0)
@@ -1202,7 +1202,7 @@ type ContainerPerfStat struct {
 	ArrContainername      []string
 	ArrOntunetime         []int64
 	ArrPoduid             []string
-	ArrNsuid              []string
+	ArrNsUid              []string
 	ArrNodeuid            []string
 	ArrMetricid           []int
 	ArrCpuusage           []float64
@@ -1227,7 +1227,7 @@ func (s *ContainerPerfStat) GetArgs() []interface{} {
 	data = append(data, pq.StringArray(s.ArrContainername))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
 	data = append(data, pq.StringArray(s.ArrPoduid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Float64Array(s.ArrCpuusage))
@@ -1253,7 +1253,7 @@ func (s *ContainerPerfStat) Init() {
 	s.ArrContainername = make([]string, 0)
 	s.ArrPoduid = make([]string, 0)
 	s.ArrNodeuid = make([]string, 0)
-	s.ArrNsuid = make([]string, 0)
+	s.ArrNsUid = make([]string, 0)
 	s.ArrOntunetime = make([]int64, 0)
 	s.ArrMetricid = make([]int, 0)
 	s.ArrCpuusage = make([]float64, 0)
@@ -1318,7 +1318,7 @@ func (s *NodeNetPerfStat) Init() {
 type PodNetPerfStat struct {
 	ArrPoduid                []string
 	ArrOntunetime            []int64
-	ArrNsuid                 []string
+	ArrNsUid                 []string
 	ArrNodeuid               []string
 	ArrMetricid              []int
 	ArrInterfaceid           []int
@@ -1334,7 +1334,7 @@ func (s *PodNetPerfStat) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.StringArray(s.ArrPoduid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrInterfaceid))
@@ -1351,7 +1351,7 @@ func (s *PodNetPerfStat) GetArgs() []interface{} {
 func (s *PodNetPerfStat) Init() {
 	s.ArrPoduid = make([]string, 0)
 	s.ArrOntunetime = make([]int64, 0)
-	s.ArrNsuid = make([]string, 0)
+	s.ArrNsUid = make([]string, 0)
 	s.ArrNodeuid = make([]string, 0)
 	s.ArrMetricid = make([]int, 0)
 	s.ArrInterfaceid = make([]int, 0)
@@ -1399,7 +1399,7 @@ func (s *NodeFsPerfStat) Init() {
 type PodFsPerfStat struct {
 	ArrPoduid      []string
 	ArrOntunetime  []int64
-	ArrNsuid       []string
+	ArrNsUid       []string
 	ArrNodeuid     []string
 	ArrMetricid    []int
 	ArrDeviceid    []int
@@ -1412,7 +1412,7 @@ func (s *PodFsPerfStat) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
 	data = append(data, pq.StringArray(s.ArrPoduid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrDeviceid))
@@ -1426,7 +1426,7 @@ func (s *PodFsPerfStat) GetArgs() []interface{} {
 func (s *PodFsPerfStat) Init() {
 	s.ArrPoduid = make([]string, 0)
 	s.ArrOntunetime = make([]int64, 0)
-	s.ArrNsuid = make([]string, 0)
+	s.ArrNsUid = make([]string, 0)
 	s.ArrNodeuid = make([]string, 0)
 	s.ArrMetricid = make([]int, 0)
 	s.ArrDeviceid = make([]int, 0)
@@ -1439,7 +1439,7 @@ type ContainerFsPerfStat struct {
 	ArrContainername []string
 	ArrOntunetime    []int64
 	ArrPoduid        []string
-	ArrNsuid         []string
+	ArrNsUid         []string
 	ArrNodeuid       []string
 	ArrMetricid      []int
 	ArrDeviceid      []int
@@ -1453,7 +1453,7 @@ func (s *ContainerFsPerfStat) GetArgs() []interface{} {
 	data = append(data, pq.StringArray(s.ArrContainername))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
 	data = append(data, pq.StringArray(s.ArrPoduid))
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.StringArray(s.ArrNodeuid))
 	data = append(data, pq.Array(s.ArrMetricid))
 	data = append(data, pq.Array(s.ArrDeviceid))
@@ -1468,7 +1468,7 @@ func (s *ContainerFsPerfStat) Init() {
 	s.ArrContainername = make([]string, 0)
 	s.ArrPoduid = make([]string, 0)
 	s.ArrNodeuid = make([]string, 0)
-	s.ArrNsuid = make([]string, 0)
+	s.ArrNsUid = make([]string, 0)
 	s.ArrOntunetime = make([]int64, 0)
 	s.ArrMetricid = make([]int, 0)
 	s.ArrDeviceid = make([]int, 0)
@@ -1556,7 +1556,7 @@ func (s *ClusterPerfStat) Init() {
 }
 
 type NamespacePerfStat struct {
-	ArrNsuid                 []string
+	ArrNsUid                 []string
 	ArrOntunetime            []int64
 	ArrPodcount              []int
 	ArrCpuusage              []float64
@@ -1582,7 +1582,7 @@ type NamespacePerfStat struct {
 
 func (s *NamespacePerfStat) GetArgs() []interface{} {
 	data := make([]interface{}, 0)
-	data = append(data, pq.StringArray(s.ArrNsuid))
+	data = append(data, pq.StringArray(s.ArrNsUid))
 	data = append(data, pq.Int64Array(s.ArrOntunetime))
 	data = append(data, pq.Array(s.ArrPodcount))
 	data = append(data, pq.Float64Array(s.ArrCpuusage))
@@ -1609,7 +1609,7 @@ func (s *NamespacePerfStat) GetArgs() []interface{} {
 }
 
 func (s *NamespacePerfStat) Init() {
-	s.ArrNsuid = make([]string, 0)
+	s.ArrNsUid = make([]string, 0)
 	s.ArrOntunetime = make([]int64, 0)
 	s.ArrPodcount = make([]int, 0)
 	s.ArrCpuusage = make([]float64, 0)
