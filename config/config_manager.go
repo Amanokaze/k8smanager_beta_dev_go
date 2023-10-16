@@ -61,7 +61,7 @@ func (mConf *ManagerConfig) LoadServerConfigurationToml(confPath string) error {
 	mConf.dbConf.connectionPort = hConf.GetUint16Conf("connection.port", 5432)
 	mConf.dbConf.connectionName = hConf.GetStrConf("connection.database", "ontune")
 	mConf.dbConf.connectionUser = hConf.GetStrConf("connection.user", "ontune")
-	mConf.dbConf.connectionPassword = hConf.GetStrConf("connection.password", "ontune")
+	mConf.dbConf.connectionPassword = hConf.GetStrConf("connection.password", "xxxxxx")
 	mConf.dbConf.connectionSslmode = hConf.GetStrConf("connection.sslmode", "disable")
 
 	mConf.tableConf.autovacuum = hConf.GetBoolConf("table.autovacuum", true)
@@ -119,7 +119,7 @@ func (mConf *ManagerConfig) LoadServerConfEnv(confPath string) {
 		return
 	}
 
-	mConf.dbConf.connectionPassword, err = hConf.ChangeKeyAfterOnceLoadConf("db_password", "db_code", "0ntune!", config_path)
+	mConf.dbConf.connectionPassword, err = hConf.ChangeKeyAfterOnceLoadConf("db_password", "db_code", "xxxxxx", config_path)
 	if err != nil {
 		fmt.Println(err)
 		return

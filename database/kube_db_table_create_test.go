@@ -12,7 +12,7 @@ import (
 )
 
 func dbConnection() (*sql.DB, error) {
-	connString := "host=127.0.0.1 user=ontune password=ontune dbname=kube_test_db port=5432 sslmode=disable TimeZone=Asia/Seoul"
+	connString := "host=127.0.0.1 user=ontune password=xxxxxx dbname=kube_test_db port=5432 sslmode=disable TimeZone=Asia/Seoul"
 	conn, err := sql.Open("postgres", connString)
 	if err != nil || conn.Ping() != nil {
 		return nil, err
